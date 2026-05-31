@@ -42,8 +42,18 @@ public static class OrderAggregatorServiceCollectionExtensions
         RegisterAggregatedOrderSender(services, configuration);
 
         services.TryAddSingleton<IDeadLetterWriter, FileDeadLetterWriter>();
+        services.TryAddSingleton<IDeadLetterReader, FileDeadLetterReader>();
 
         services.AddHostedService<OrderAggregationFlushService>();
+
+        // Replay loop resends accumulated dead-letter files. Off-switch via config so
+        // it can be disabled where another process owns the dead-letter directory.
+        var deadLetterOptions = configuration.GetSection(DeadLetterOptions.SectionName)
+            .Get<DeadLetterOptions>() ?? new DeadLetterOptions();
+        if (deadLetterOptions.ReplayEnabled)
+        {
+            services.AddHostedService<DeadLetterReplayService>();
+        }
 
         return services;
     }

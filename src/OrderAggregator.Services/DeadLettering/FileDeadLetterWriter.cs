@@ -30,7 +30,9 @@ public sealed class FileDeadLetterWriter : IDeadLetterWriter
 
         Directory.CreateDirectory(_options.Directory);
 
-        var fileName = $"deadletter-{batch.FlushedAt:yyyyMMdd-HHmmss-fff}-{Guid.NewGuid():N}.json";
+        // BatchId in the name ties the file to the idempotency key sent downstream; the
+        // FlushedAt prefix keeps the directory listing sorted FIFO for the replay loop.
+        var fileName = $"deadletter-{batch.FlushedAt:yyyyMMdd-HHmmss-fff}-{batch.BatchId:N}.json";
         var path = Path.Combine(_options.Directory, fileName);
         var tempPath = path + ".tmp";
 

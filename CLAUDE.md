@@ -18,7 +18,7 @@ vývojářské/agentní práce nad kódem.
 src/
 ├── OrderAggregator.Models/         doménové entity — leaf, nic neimportuje
 ├── OrderAggregator.Contracts/      wire DTO (OrderRequest, *Dto, *Response) — leaf, ready jako klientské SDK
-├── OrderAggregator.Abstractions/   rozhraní (IOrderStore, IAggregatedOrderSender, IProductRepository, IDeadLetterWriter) — zná jen Models
+├── OrderAggregator.Abstractions/   rozhraní (IOrderStore, IAggregatedOrderSender, IProductRepository, IDeadLetterWriter, IDeadLetterReader) — zná jen Models
 ├── OrderAggregator.Resources/      lokalizované texty (.resx) + source-generated ApiMessages — leaf
 ├── OrderAggregator.Shared/         sdílený kernel pod Services i Api — Configuration/ (options) + Const/ (LocalizationConstants)
 ├── OrderAggregator.Services/       implementace (stores, senders, flush service, dead-lettering, diagnostics)
@@ -124,6 +124,39 @@ automaticky. **Pozor:** bezparametrové `NotDependOnAny()` je tichý no-op
 - **Graceful shutdown**: flush loop dělá při vypnutí finální drain + send.
   `Program.cs` má `HostOptions.ShutdownTimeout = 30 s`, ať to stihne doběhnout.
 
+### Dead-letter replay (postupné doodeslání)
+- Bez čtenáře by se soubory v dead-letteru hromadily donekonečna. `DeadLetterReplayService`
+  (hosted service v `Services/DeadLettering/`) je proto **postupně** doodesílá.
+  Zrcadlí flush service: `PeriodicTimer(ReplayInterval, TimeProvider)`, graceful loop,
+  `internal ReplayOnceAsync` pro unit testy. Registruje se jen když `DeadLetter:ReplayEnabled`
+  (default true).
+- **Read side** `IDeadLetterReader` (Abstractions) / `FileDeadLetterReader` (Services):
+  enumeruje `deadletter-*.json` (glob **musí** končit `.json`, jinak by chytal writerův
+  `.json.tmp`), **FIFO** podle názvu (timestamp prefix sortí chronologicky), čte stejnými
+  `JsonSerializerDefaults.Web` jako writer. `DeadLetterEntry` (Models) je opaque handle
+  (jméno souboru), který přežije přesun do karantény. Nečitelný JSON → `ReadAsync` vrátí
+  `null` = corrupt.
+- **Throttle = `MaxFilesPerRun` na tick + `ReplayInterval` mezi ticky.** Jeden pokus
+  `SendAsync` na soubor na tick (interval = backoff, žádná vnitřní retry smyčka — to ji
+  liší od flush service). Úspěch → `DeleteAsync` + metrika. Selhání → **in-memory čítač**
+  pokusů (`Dictionary` ve službě, restart vynuluje — karanténa je pojistka, ne exactly-once);
+  po `MaxReplayAttempts` → `QuarantineAsync` přesune soubor do `DeadLetter:PoisonDirectory`
+  (default `poison`, podadresář pod `Directory`), aby neblokoval frontu.
+- **Re-send přímo přes `IAggregatedOrderSender`** (ne re-enqueue do storu) → zachová původní
+  dávku i `FlushedAt`, nezdvojí počty.
+- **Idempotency key — `OrderBatch.BatchId` (Guid).** Pravá transakce přes downstream + filesystem
+  neexistuje, takže pipeline je záměrně **at-least-once** (pošli, pak teprve smaž → radši
+  duplicita než ztráta). `BatchId` se generuje jednou při flushi, **round-tripuje** dead-letter
+  souborem (writer ho dá i do názvu `deadletter-{flushedAt}-{batchId:N}.json`) a posílá se
+  stejný na každý retry i replay → downstream, který na něm deduplikuje, dostane efektivně
+  exactly-once. `ConsoleSender` ho jen loguje; reálný HTTP/Kafka sender by ho dal do
+  `Idempotency-Key` hlavičky / message key. Selže-li `DeleteAsync` po úspěšném sendu, příští
+  tick pošle dávku znovu se **stejným** `BatchId` → bezpečné.
+- **Mimo rozsah** (zdokumentováno jako rozšíření): multi-instance/crash safety přes
+  claim-by-rename — dnes je dead-letter adresář lokální per-instance.
+- Konfig sekce `DeadLetter`: `ReplayEnabled`, `ReplayIntervalSeconds` (default 30),
+  `MaxFilesPerRun` (10), `MaxReplayAttempts` (5), `PoisonDirectory` (`poison`).
+
 ### Observabilita (OpenTelemetry)
 - Celá kompozice v `Api/DependencyInjection/ObservabilityServiceCollectionExtensions.cs`
   (`AddAppObservability(configuration)`). Exportuje **traces + metrics + logs**
@@ -141,9 +174,11 @@ automaticky. **Pozor:** bezparametrové `NotDependOnAny()` je tichý no-op
   - `OrderAggregationMetrics` (`IMeterFactory`) — registrovaná **bezpodmínečně**
     (`AddMetrics` + `TryAddSingleton`), bez subscribera je záznam no-op. Instrumenty:
     `orders.accepted`, `orders.rejected_batches`, `flush.batch_size`,
-    `flush.duration` (ms), `flush.sent`, `flush.dead_lettered`.
-  - Flush service bere `OrderAggregationMetrics?` jako **volitelný** ctor parametr
-    (vzor jako `TimeProvider?`) → unit testy bez meteru, DI dodá reálnou instanci.
+    `flush.duration` (ms), `flush.sent`, `flush.dead_lettered`,
+    `deadletter.replayed`, `deadletter.quarantined`.
+  - Flush i replay service berou `OrderAggregationMetrics?` jako **volitelný** ctor
+    parametr (vzor jako `TimeProvider?`) → unit testy bez meteru, DI dodá reálnou instanci.
+    Replay span = `deadletter.replay` přes stejný `ActivitySource`.
 - **Nový signál:** metriku přidej do `OrderAggregationMetrics`, span přes
   `ActivitySource`. Nový `ActivitySource`/`Meter` zaregistruj v `AddAppObservability`
   přes `AddSource(...)` / `AddMeter(...)`.

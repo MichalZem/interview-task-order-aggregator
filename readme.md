@@ -10,6 +10,17 @@ systému.
 
 Plné zadání viz `task-description.md`.
 
+## Jak to funguje
+
+1. `POST /api/orders` zvaliduje a uloží objednávky do **agregačního bufferu**.
+2. Na pozadí běží smyčka, která **každých 20 s** buffer vyprázdní, sečte množství
+   per produkt a pošle snapshot navazujícímu systému (zatím výpis do konzole).
+3. Když odeslání selže, zkusí se to znovu (retry); po vyčerpání pokusů se dávka
+   odloží na disk do **dead-letter** složky (nezacyklí se, data se neztratí).
+4. Dead-letter složka se monitoruje a při objevení nového souboru se odeslání znovu zkusí.
+   pokud se to povede, soubor se smaže; pokud ne, zůstane pro manuální zásah.
+
+
 ## Jak to spustit
 
 ### Pozor
@@ -76,14 +87,6 @@ curl -X POST http://localhost:5000/api/orders \
 
 Objednávka s neznámým `productId` odmítne **celou dávku** (`400`), ať ji klient
 po opravě může bezpečně poslat znovu bez dvojího započtení.
-
-## Jak to funguje
-
-1. `POST /api/orders` zvaliduje a uloží objednávky do **agregačního bufferu**.
-2. Na pozadí běží smyčka, která **každých 20 s** buffer vyprázdní, sečte množství
-   per produkt a pošle snapshot navazujícímu systému (zatím výpis do konzole).
-3. Když odeslání selže, zkusí se to znovu (retry); po vyčerpání pokusů se dávka
-   odloží na disk do **dead-letter** složky (nezacyklí se, data se neztratí).
 
 ## Konfigurace (`appsettings.json`)
 

@@ -101,7 +101,7 @@ public sealed class OrderAggregationFlushService : BackgroundService
         var totalQuantity = snapshot.Sum(o => o.Quantity);
         using var activity = StartFlushActivity(snapshot.Count, totalQuantity);
 
-        var batch = new OrderBatch(snapshot, _timeProvider.GetUtcNow());
+        var batch = new OrderBatch(Guid.NewGuid(), snapshot, _timeProvider.GetUtcNow());
         var startTimestamp = _timeProvider.GetTimestamp();
         var delivered = await TrySendAsync(batch).ConfigureAwait(false);
 

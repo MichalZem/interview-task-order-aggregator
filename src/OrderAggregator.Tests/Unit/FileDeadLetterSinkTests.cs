@@ -18,6 +18,7 @@ public class FileDeadLetterSinkTests : IDisposable
     {
         var sink = CreateSink();
         var batch = new OrderBatch(
+            Guid.NewGuid(),
             new[] { new AggregatedOrder("a", 5), new AggregatedOrder("b", 2) },
             new DateTimeOffset(2026, 5, 31, 10, 0, 0, TimeSpan.Zero));
 
@@ -32,7 +33,9 @@ public class FileDeadLetterSinkTests : IDisposable
             new JsonSerializerOptions(JsonSerializerDefaults.Web));
 
         Assert.NotNull(roundTripped);
-        Assert.Equal(5, roundTripped!.Orders.Single(o => o.ProductId == "a").Quantity);
+        // The idempotency key survives the round-trip so a replay resends the same id.
+        Assert.Equal(batch.BatchId, roundTripped!.BatchId);
+        Assert.Equal(5, roundTripped.Orders.Single(o => o.ProductId == "a").Quantity);
         Assert.Equal(2, roundTripped.Orders.Single(o => o.ProductId == "b").Quantity);
     }
 
@@ -42,6 +45,7 @@ public class FileDeadLetterSinkTests : IDisposable
         var sink = CreateSink();
 
         await sink.WriteAsync(new OrderBatch(
+            Guid.NewGuid(),
             new[] { new AggregatedOrder("a", 1) },
             DateTimeOffset.UtcNow));
 

@@ -25,6 +25,10 @@ public sealed class OrderAggregationMetrics : IDisposable
     private readonly Counter<long> _flushSent;
     private readonly Counter<long> _flushDeadLettered;
 
+    // Dead-letter replay — health of the background drain of failed batches.
+    private readonly Counter<long> _deadLetterReplayed;
+    private readonly Counter<long> _deadLetterQuarantined;
+
     public OrderAggregationMetrics(IMeterFactory meterFactory)
     {
         ArgumentNullException.ThrowIfNull(meterFactory);
@@ -59,6 +63,16 @@ public sealed class OrderAggregationMetrics : IDisposable
             "orderaggregator.flush.dead_lettered",
             unit: "{batch}",
             description: "Aggregated batches dead-lettered after exhausting send retries.");
+
+        _deadLetterReplayed = _meter.CreateCounter<long>(
+            "orderaggregator.deadletter.replayed",
+            unit: "{batch}",
+            description: "Dead-lettered batches successfully resent by the replay loop.");
+
+        _deadLetterQuarantined = _meter.CreateCounter<long>(
+            "orderaggregator.deadletter.quarantined",
+            unit: "{batch}",
+            description: "Dead-lettered batches quarantined as poison (attempts exhausted or corrupt).");
     }
 
     public void RecordOrdersAccepted(int count) => _ordersAccepted.Add(count);
@@ -79,6 +93,12 @@ public sealed class OrderAggregationMetrics : IDisposable
             _flushDeadLettered.Add(1);
         }
     }
+
+    /// <summary>Record a dead-lettered batch successfully resent by the replay loop.</summary>
+    public void RecordReplayed() => _deadLetterReplayed.Add(1);
+
+    /// <summary>Record a dead-lettered batch moved to quarantine (poison or corrupt).</summary>
+    public void RecordQuarantined() => _deadLetterQuarantined.Add(1);
 
     public void Dispose() => _meter.Dispose();
 }
