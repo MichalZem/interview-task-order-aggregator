@@ -38,6 +38,9 @@ services:
       - "5047:5047"
     environment:
       ASPNETCORE_ENVIRONMENT: "Development"
+      # aspnet base image defaultuje na :8080; přepneme Kestrel na 5047, ať sedí
+      # s port mappingem 5047:5047 i s healthcheckem níže.
+      ASPNETCORE_URLS: "http://+:5047"
       # Docker hostnames místo localhost (přebíjí appsettings):
       OrderStore__Redis__ConnectionString: "redis:6379"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://aspire:18889"
