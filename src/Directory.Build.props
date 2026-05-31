@@ -1,0 +1,16 @@
+<Project>
+
+  <!--
+    Solution-wide build defaults. MSBuild auto-imports the nearest
+    Directory.Build.props walking up from each project, so every project under
+    src/ inherits this without an explicit reference.
+  -->
+  <PropertyGroup>
+    <!-- Treat warnings as errors everywhere: a warning that reaches CI is a defect.
+         Keeps the codebase honest as it grows (unused usings, nullability holes,
+         obsolete APIs all fail the build instead of rotting in the log). A new
+         project added to the solution inherits this automatically. -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+</Project>

@@ -1,0 +1,45 @@
+> test info
+
+
+
+test suite: `nbomber_default_test_suite_name`
+
+test name: `nbomber_default_test_name`
+
+session id: `2026-05-30_17-54-36_9005e996`
+
+> scenario stats
+
+
+
+scenario: `post_orders`
+
+  - ok count: `9000`
+
+  - fail count: `0`
+
+  - all data: `0` MB
+
+  - duration: `00:00:30`
+
+load simulations:
+
+  - `inject`, rate: `300`, interval: `00:00:01`, during: `00:00:30`
+
+|step|ok stats|
+|---|---|
+|name|`global information`|
+|request count|all = `9000`, ok = `9000`, RPS = `300`|
+|latency (ms)|min = `0.3`, mean = `1.09`, max = `19.64`, StdDev = `0.99`|
+|latency percentile (ms)|p50 = `0.94`, p75 = `1.2`, p95 = `1.85`, p99 = `3.32`|
+
+
+> status codes for scenario: `post_orders`
+
+
+
+|status code|count|message|
+|---|---|---|
+|202|9000||
+
+

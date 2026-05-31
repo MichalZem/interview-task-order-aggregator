@@ -427,3 +427,7 @@ FodyWeavers.xsd
 *.msix
 *.msm
 *.msp
+
+# Dead-lettered batches (runtime output, not source)
+DeadLetter/
+**/DeadLetter/

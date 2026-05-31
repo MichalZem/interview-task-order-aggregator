@@ -1,0 +1,70 @@
+@host = http://localhost:5000
+@apiKey = dev-key-please-rotate-in-production-0001
+
+### Health check (anonymous)
+GET {{host}}/health
+
+### List the product catalog
+GET {{host}}/api/products
+X-Api-Key: {{apiKey}}
+
+### Get a single product by id
+GET {{host}}/api/products/456
+X-Api-Key: {{apiKey}}
+
+### Get a non-existent product → 404
+GET {{host}}/api/products/does-not-exist
+X-Api-Key: {{apiKey}}
+
+### Submit a batch of orders for aggregation
+POST {{host}}/api/orders
+Content-Type: application/json
+X-Api-Key: {{apiKey}}
+
+[
+  { "productId": "456", "quantity": 5 },
+  { "productId": "789", "quantity": 42 },
+  { "productId": "456", "quantity": 3 }
+]
+
+### Submit with the secondary configured key
+POST {{host}}/api/orders
+Content-Type: application/json
+X-Api-Key: dev-key-please-rotate-in-production-0002
+
+[
+  { "productId": "456", "quantity": 1 }
+]
+
+### Missing API key → 401 Unauthorized
+POST {{host}}/api/orders
+Content-Type: application/json
+
+[
+  { "productId": "456", "quantity": 1 }
+]
+
+### Wrong API key → 401 Unauthorized
+POST {{host}}/api/orders
+Content-Type: application/json
+X-Api-Key: definitely-not-valid
+
+[
+  { "productId": "456", "quantity": 1 }
+]
+
+### Validation error (empty body)
+POST {{host}}/api/orders
+Content-Type: application/json
+X-Api-Key: {{apiKey}}
+
+[]
+
+### Validation error (invalid quantity)
+POST {{host}}/api/orders
+Content-Type: application/json
+X-Api-Key: {{apiKey}}
+
+[
+  { "productId": "456", "quantity": 0 }
+]

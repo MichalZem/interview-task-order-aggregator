@@ -1,0 +1,13 @@
+<Solution>
+  <Folder Name="/Tests/">
+    <Project Path="OrderAggregator.LoadTests/OrderAggregator.LoadTests.csproj" />
+    <Project Path="OrderAggregator.Tests/OrderAggregator.Tests.csproj" />
+  </Folder>
+  <Project Path="OrderAggregator.Abstractions/OrderAggregator.Abstractions.csproj" Id="51de37d6-f4af-4caf-b9a1-f34b13f3a419" />
+  <Project Path="OrderAggregator.Shared/OrderAggregator.Shared.csproj" />
+  <Project Path="OrderAggregator.Services/OrderAggregator.Services.csproj" Id="b101914c-11e8-484a-9be2-e39b9ec93bbd" />
+  <Project Path="OrderAggregator.Api/OrderAggregator.Api.csproj" />
+  <Project Path="OrderAggregator.Models/OrderAggregator.Models.csproj" Id="eccaf1e5-ff65-4433-9ca1-d4f1c5701a48" />
+  <Project Path="OrderAggregator.Contracts/OrderAggregator.Contracts.csproj" />
+  <Project Path="OrderAggregator.Resources/OrderAggregator.Resources.csproj" />
+</Solution>

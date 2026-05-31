@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <!-- Root namespace keeps the generated classes directly under
+         OrderAggregator.Resources (.resx live at the project root, no nested
+         Resources/Resources folder). -->
+    <RootNamespace>OrderAggregator.Resources</RootNamespace>
+
+    <!-- Source generator config (global properties — Catglobe exposes them via
+         CompilerVisibleProperty). Applies to every .resx in the project:
+         PublicClass: the generated class is public (we share it from Api).
+         NullForgivingOperators: properties return string instead of string? (the
+           key always exists in .resx; saves null-handling at the call-site).
+         Do NOT enable UseDefaults here — it would suppress satellite assemblies,
+           and those carry the culture translations (ApiMessages.cs.resx =>
+           cs/…resources.dll). -->
+    <ResXFileCodeGenerator_PublicClass>true</ResXFileCodeGenerator_PublicClass>
+    <ResXFileCodeGenerator_NullForgivingOperators>true</ResXFileCodeGenerator_NullForgivingOperators>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Roslyn source generator: turns each neutral .resx into a strongly-typed
+         class AT BUILD TIME (dotnet build / CI / Rider / VS) — independent of the
+         VS custom tool. Add a string to .resx => property after the next build.
+         PrivateAssets=all: the generator is build-time only, not propagated to
+         consumers. The SDK includes *.resx as EmbeddedResource automatically; the
+         generator ignores the satellite ApiMessages.cs.resx (it handles only the
+         neutral file), cultures are resolved at runtime via ResourceManager +
+         CurrentUICulture. -->
+    <PackageReference Include="Catglobe.ResXFileCodeGenerator" Version="4.1.2" PrivateAssets="all" />
+  </ItemGroup>
+
+</Project>
