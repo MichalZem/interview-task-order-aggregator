@@ -8,7 +8,7 @@ REST API v **.NET 10**, které přijímá objednávky/produkty, agreguje je podl
 a **ne častěji než jednou za 20 vteřin** posílá agregovaný snapshot navazujícímu
 systému.
 
-Plné zadání viz `task-description.md`.
+Plné zadání viz [task-description.md](/task-description.md).
 
 ## Jak to funguje
 
