@@ -23,14 +23,16 @@ public static class ProductsEndpoints
                 "(`ProductCatalog:FilePath`), so the result is deterministic across requests and file " +
                 "changes require a process restart.")
             .Produces<ProductListResponse>()
-            .ProducesProblem(StatusCodes.Status401Unauthorized);
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status500InternalServerError);
 
         group.MapGet("/{productId}", GetProduct)
             .WithName("GetProduct")
             .WithSummary("Returns a single product by ID")
             .Produces<ProductDto>()
             .ProducesProblem(StatusCodes.Status401Unauthorized)
-            .ProducesProblem(StatusCodes.Status404NotFound);
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status500InternalServerError);
 
         return app;
     }

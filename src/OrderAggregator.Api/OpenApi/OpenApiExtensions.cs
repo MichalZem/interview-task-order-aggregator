@@ -20,7 +20,8 @@ public static class OpenApiExtensions
             options.AddDocumentTransformer<OrderAggregatorDocumentTransformer>();
             options.AddDocumentTransformer<ApiKeySecuritySchemeDocumentTransformer>();
             options.AddDocumentTransformer<CultureParameterDocumentTransformer>();
-            options.AddOperationTransformer<OrdersExamplesOperationTransformer>();
+            options.AddOperationTransformer<OrdersRequestOperationTransformer>();
+            options.AddSchemaTransformer<ProblemDetailsSchemaTransformer>();
         });
 
         return services;

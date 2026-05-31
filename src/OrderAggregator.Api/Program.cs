@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using OrderAggregator.Api.Authentication;
 using OrderAggregator.Api.DependencyInjection;
 using OrderAggregator.Api.Endpoints;
@@ -13,7 +14,15 @@ var builder = WebApplication.CreateBuilder(args);
 // contract types (de)serialize via compile-time code on the hot path, everything
 // else (ProblemDetails, …) still falls back to reflection later in the chain.
 builder.Services.ConfigureHttpJsonOptions(options =>
-    options.SerializerOptions.TypeInfoResolverChain.Insert(0, AppJsonSerializerContext.Default));
+{
+    options.SerializerOptions.TypeInfoResolverChain.Insert(0, AppJsonSerializerContext.Default);
+
+    // Numbers must arrive as JSON numbers, not quoted strings. The Web defaults
+    // enable AllowReadingFromString, which leaks into the OpenAPI contract as ugly
+    // integer|string union types carrying a numeric pattern. Strict keeps both the
+    // generated schema and the accepted wire format clean.
+    options.SerializerOptions.NumberHandling = JsonNumberHandling.Strict;
+});
 
 builder.Services.AddAppOpenApi();
 builder.Services.AddCommonServices();

@@ -22,12 +22,30 @@ public sealed class OrderAggregatorDocumentTransformer : IOpenApiDocumentTransfo
                 "(in this demo via ConsoleAggregatedOrderSender).",
             Contact = new OpenApiContact
             {
-                Name = "source code here: https://github.com/MichalZem/interview-task-order-aggregator",
+                Name = "Michal Zemek - https://github.com/MichalZem/interview-task-order-aggregator - GitHub",
                 Url = new Uri("https://github.com/MichalZem/interview-task-order-aggregator"),
+                
             },
             License = new OpenApiLicense
             {
                 Name = "MIT",
+            },
+        };
+
+        // Tag descriptions render as section subtitles in Scalar / Swagger UI.
+        // Names must match the .WithTags(...) values on the endpoint groups so the
+        // per-operation tag references resolve to these definitions.
+        document.Tags = new HashSet<OpenApiTag>
+        {
+            new()
+            {
+                Name = "Orders",
+                Description = "Submit orders for aggregation into the rolling 20-second flush window.",
+            },
+            new()
+            {
+                Name = "Products",
+                Description = "Read the product catalog that incoming orders are validated against.",
             },
         };
 

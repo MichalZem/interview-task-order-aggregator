@@ -1,0 +1,59 @@
+# Order Aggregator — kompletní lokální dev stack jedním příkazem:
+#   docker compose up --build
+#
+# Spustí API + Redis (agregační buffer) + Aspire Dashboard (observabilita).
+# API běží v kontejneru jen na HTTP (port 5047) — TLS řeší v produkci reverse proxy.
+
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"        # publikováno kvůli ladění z hostu; API jezdí po interní síti
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  aspire:
+    image: mcr.microsoft.com/dotnet/aspire-dashboard:latest
+    environment:
+      DOTNET_DASHBOARD_UNSECURED_ALLOW_ANONYMOUS: "true"
+    ports:
+      - "18888:18888"      # Dashboard UI; OTLP/gRPC (18889) zůstává jen v interní síti
+
+  api:
+    build:
+      context: ./src
+      dockerfile: OrderAggregator.Api/Dockerfile
+    # The Redis multiplexer connects eagerly with AbortOnConnectFail=true, so a
+    # cold `up` can lose a startup race with Redis networking — auto-recover.
+    restart: on-failure
+    depends_on:
+      redis:
+        condition: service_healthy
+      aspire:
+        condition: service_started
+    ports:
+      - "5047:5047"
+    environment:
+      ASPNETCORE_ENVIRONMENT: "Development"
+      # Docker hostnames místo localhost (přebíjí appsettings):
+      OrderStore__Redis__ConnectionString: "redis:6379"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://aspire:18889"
+      # Dead-letter na volume kvůli perzistenci replaye přes restart
+      # (appsettings.Development.json míří na Windows cestu C:/TEMP, v Linuxu neplatí):
+      DeadLetter__Directory: "/data/deadletter"
+      # Záměrná fault injection pro demo dead-letter pipeline; ztlumíš nastavením na 0:
+      AggregatedOrderSender__Console__FailureProbability: "0.5"
+    volumes:
+      - deadletter-data:/data/deadletter
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5047/health/live"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 30s
+
+volumes:
+  deadletter-data:

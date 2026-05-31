@@ -49,6 +49,33 @@ docker run --rm -it -p 18888:18888 -p 4317:18889 \
   mcr.microsoft.com/dotnet/aspire-dashboard:latest
 ```
 
+### Docker Compose (primární dev launcher)
+
+```bash
+docker compose up --build       # API + Redis + Aspire jedním příkazem
+docker compose down             # zastavení stacku
+```
+
+- `docker-compose.yml` (kořen repa) + `src/OrderAggregator.Api/Dockerfile`
+  (multi-stage, build context `src/`) + `src/.dockerignore`. Nahrazuje dřívější
+  `run-app.bat`.
+- API běží v kontejneru **jen na HTTP** (`http://localhost:5047`, `ASPNETCORE_URLS=http://+:5047`).
+  HTTPS/dev certifikáty se v kontejneru neřeší — TLS je věc reverse proxy v produkci.
+- Compose **přebíjí konfiguraci env vary** (`Section__Key`), ať kontejnery míří na
+  sebe po interní síti místo `localhost`:
+  - `OrderStore__Redis__ConnectionString=redis:6379`
+  - `OTEL_EXPORTER_OTLP_ENDPOINT=http://aspire:18889` (interní OTLP port kontejneru je
+    **18889**, ne hostový 4317)
+  - `DeadLetter__Directory=/data/deadletter` (Windows cesta z `appsettings.Development.json`
+    v Linux kontejneru neplatí; mapováno na pojmenovaný volume `deadletter-data` →
+    replay přežije restart)
+  - `AggregatedOrderSender__Console__FailureProbability=0.5` (záměrná fault injection
+    pro demo dead-letteru; `0` ji vypne)
+- API service má healthcheck na `/health/live`; `depends_on` čeká na `redis`
+  (`condition: service_healthy`). Runtime image proto v Dockerfile doinstalovává `curl`.
+- **Nová env proměnná / služba** → přidej do `docker-compose.yml`; nový NuGet/projekt
+  se v `Dockerfile` projeví sám (restore kopíruje všechny produkční `*.csproj`).
+
 Dev URL: typicky `http://localhost:5000` (port z `launchSettings.json`). Po startu:
 - `/` → redirect na `/swagger`
 - `/scalar/v1`, `/swagger`, `/openapi/v1.json` — UI + raw OpenAPI 3.1
@@ -206,18 +233,34 @@ automaticky. **Pozor:** bezparametrové `NotDependOnAny()` je tichý no-op
   s tagem `ReadyTag`, má-li bránit readiness.
 
 ### OpenAPI + interaktivní UI
-- Vše v `Api/OpenApi/OpenApiExtensions.cs`: `AddOrderAggregatorOpenApi()` +
-  `MapOrderAggregatorOpenApi()` (mapuje `/openapi/v1.json`, Scalar, Swagger UI,
-  root redirect na `/swagger`).
+- Vše v `Api/OpenApi/OpenApiExtensions.cs`: `AddAppOpenApi()` +
+  `MapOpenApi()` (mapuje `/openapi/v1.json`, Scalar, Swagger UI,
+  root redirect na `/swagger`). Microsoft.OpenApi **2.0** (`OpenApiSchema.Type` je
+  flags enum `JsonSchemaType`, schémata jsou `IOpenApiSchema` — mutace přes cast na
+  konkrétní `OpenApiSchema`).
 - **Popisy operací jsou inline (anglicky)** přes `WithSummary`/`WithDescription`
   na endpointech; ostatní texty inline v transformerech. Lokalizace dokumentace
   byla záměrně odstraněna — lokalizují se jen runtime chybové hlášky.
+- **`OrderAggregatorDocumentTransformer`** plní `info` (title/version/description,
+  `contact`, MIT licence) a **popisy tagů** `Orders`/`Products` (`document.Tags`,
+  jména musí sednout na `.WithTags(...)`).
+- **`OrdersRequestOperationTransformer`** tvaruje request body `POST /api/orders`:
+  `Required = true`, rozbalí nullable `oneOf [null, array]` na čisté pole s
+  `minItems: 1` (odpovídá tomu, že handler odmítne null/prázdno 400) a vkládá
+  ukázkové payloady do „Try it out".
+- **Endpointy deklarují `500` ProblemDetails** (`.ProducesProblem(500)`) vedle
+  401/404 — kontrakt přiznává i serverovou chybu.
+- **`ProblemDetailsSchemaTransformer`** doplňuje `description` frameworkovým
+  schématům `ProblemDetails` (401/404/500) a `HttpValidationProblemDetails` (400 +
+  mapa `errors`) — ta nejsou naše dokumentovaná DTO, jinak by v `components.schemas`
+  zůstala bez popisu. Detekce přes `context.JsonTypeInfo.Type` (exact match).
 - **Popisy schémat plynou z XML doc komentářů** na wire DTO v `Contracts`
   (`<GenerateDocumentationFile>true</…>` tam zapnuto) — source generator je
   propíše do `components.schemas`. Api projekt `GenerateDocumentationFile`
   zapnuté **nemá** schválně (jinak CS1591 přes `TreatWarningsAsErrors`).
   **Nový wire DTO** → dokumentuj `/// <summary>` (+ `/// <param>` u recordů).
-- **Nový transformer** → do `Api/OpenApi/` + registruj v `AddOrderAggregatorOpenApi`.
+- **Nový transformer** → do `Api/OpenApi/` + registruj v `AddAppOpenApi`
+  (`AddDocumentTransformer` / `AddOperationTransformer` / `AddSchemaTransformer`).
 
 ### Mapping přes Mapster
 - Konfigurace v `Api/Mapping/ContractMappingRegister.cs` (`IRegister`).
@@ -267,6 +310,11 @@ automaticky. **Pozor:** bezparametrové `NotDependOnAny()` je tichý no-op
 - **JSON přes source generator:** `AppJsonSerializerContext` (`Api/Serialization/`,
   camelCase) vložen na začátek `TypeInfoResolverChain` → (de)serializace bez
   reflexe. **Nový serializovaný wire typ** → přidej `[JsonSerializable]`.
+- **Striktní čísla:** `ConfigureHttpJsonOptions` v `Program.cs` nastavuje
+  `NumberHandling = JsonNumberHandling.Strict`. Web default `AllowReadingFromString`
+  by jinak (a) připustil čísla poslaná jako string a (b) prosákl do OpenAPI jako
+  union `["integer","string"]` + číselný `pattern` u `quantity`/`count`/`status`.
+  Strict drží kontrakt i přijímaný formát čistý (číslo = JSON number, ne `"5"`).
 - Měřený dopad: čistý strop ~4 000 → ~8 000 req/s, p99 ~32 ms.
 
 ## Konvence
@@ -322,6 +370,8 @@ splň oboje.
 
 - `readme.md` — uživatelská dokumentace (CZ, pro recenzenta)
 - `task-description.md` — zadání
+- `docker-compose.yml` — dev stack (API + Redis + Aspire); primární launcher
+- `src/OrderAggregator.Api/Dockerfile` + `src/.dockerignore` — build image API
 - `LICENSE`
 
 ## Jazyk

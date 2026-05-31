@@ -3,9 +3,7 @@ using System.ComponentModel.DataAnnotations;
 namespace OrderAggregator.Contracts.Orders;
 
 /// <summary>
-/// Wire-level representation of an incoming order. Lives in the Contracts
-/// project so external consumers (SDK clients, downstream services) can
-/// reference the shape without pulling in the host / domain assemblies.
+/// Represents a request to create an order for a product with a specified quantity.
 /// </summary>
 public sealed class OrderRequest
 {

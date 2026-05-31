@@ -5,11 +5,13 @@ using Microsoft.OpenApi;
 namespace OrderAggregator.Api.OpenApi;
 
 /// <summary>
-/// Injects ready-to-use JSON examples into the request body of
-/// <c>POST /api/orders</c> so the Swagger UI / Scalar "Try it out" panel
-/// prefills with a realistic payload instead of an empty array.
+/// Shapes the request body of <c>POST /api/orders</c> so the contract matches the
+/// handler's real behaviour: marks the body as required, tightens the schema to a
+/// non-empty array (the handler rejects a null or empty batch with 400), and
+/// injects ready-to-use JSON examples for the Swagger UI / Scalar "Try it out"
+/// panel instead of an empty array.
 /// </summary>
-public sealed class OrdersExamplesOperationTransformer : IOpenApiOperationTransformer
+public sealed class OrdersRequestOperationTransformer : IOpenApiOperationTransformer
 {
     private static readonly JsonArray TypicalBatch = new()
     {
@@ -38,12 +40,50 @@ public sealed class OrdersExamplesOperationTransformer : IOpenApiOperationTransf
             return Task.CompletedTask;
         }
 
+        // The handler returns 400 for a null/empty body — advertise the body as required.
+        if (operation.RequestBody is OpenApiRequestBody requestBody)
+        {
+            requestBody.Required = true;
+        }
+
         if (operation.RequestBody.Content is null ||
             !operation.RequestBody.Content.TryGetValue("application/json", out var mediaType))
         {
             return Task.CompletedTask;
         }
 
+        TightenArraySchema(mediaType);
+        ApplyExamples(mediaType);
+
+        return Task.CompletedTask;
+    }
+
+    // A nullable IReadOnlyCollection<OrderRequest>? handler parameter renders as
+    // oneOf [ null, array ]. Unwrap to the array branch (which keeps its $ref to
+    // OrderRequest) and require at least one item — the buffer never accepts an
+    // empty batch.
+    private static void TightenArraySchema(OpenApiMediaType mediaType)
+    {
+        if (mediaType.Schema is not OpenApiSchema schema || schema.OneOf is not { Count: > 0 })
+        {
+            return;
+        }
+
+        var arrayBranch = schema.OneOf
+            .OfType<OpenApiSchema>()
+            .FirstOrDefault(branch => branch.Type?.HasFlag(JsonSchemaType.Array) == true);
+
+        if (arrayBranch is null)
+        {
+            return;
+        }
+
+        arrayBranch.MinItems = 1;
+        mediaType.Schema = arrayBranch;
+    }
+
+    private static void ApplyExamples(OpenApiMediaType mediaType)
+    {
         // Single inline example — Swagger UI shows this as the prefilled body.
         mediaType.Example = TypicalBatch.DeepClone();
 
@@ -69,7 +109,5 @@ public sealed class OrdersExamplesOperationTransformer : IOpenApiOperationTransf
                 Value = HighVolumeBurst.DeepClone(),
             },
         };
-
-        return Task.CompletedTask;
     }
 }

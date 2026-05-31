@@ -1,0 +1,9 @@
+# Build artifacts and runtime output — keep the build context small.
+**/bin/
+**/obj/
+**/DeadLetter/
+**/.vs/
+**/*.user
+**/TestResults/
+**/BenchmarkDotNet.Artifacts/
+**/*.binlog

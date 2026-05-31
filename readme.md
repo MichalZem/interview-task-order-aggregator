@@ -26,31 +26,36 @@ Plné zadání viz `task-description.md`.
 ### Pozor
 ``` 
 Aktuálně je nastaveno tak, aby služba při odesílání agregovaných objednávek občas selhávala a vytvořila tak dead-letter, aby bylo vidět jak to funguje.  
-Soubory s dead-lettery se ukládají do složky `C:/TEMP/DeadLetter` .  
-Pokud chcete toto chování vypnout, nastavte `AggregatedOrderSender:Console:FailureProbability` v `appsettings.json` na 0.  
+V Docker Compose se dead-lettery ukládají do volume `deadletter-data` (uvnitř kontejneru `/data/deadletter`).  
+Pokud chcete toto chování vypnout, nastavte v `docker-compose.yml` proměnnou `AggregatedOrderSender__Console__FailureProbability` na `0` (nebo `AggregatedOrderSender:Console:FailureProbability` v `appsettings.json`).  
 ```
 
 
-### Rychle — všechno najednou (Windows)
+### Rychle — všechno najednou (Docker Compose)
 
 
-```bat
-run-app.bat
+```bash
+docker compose up --build
 ```
 
-`run-app.bat` (v kořeni repa) nahodí kompletní lokální stack v tomto pořadí:
+`docker compose up` (z kořene repa) postaví a nahodí kompletní lokální stack —
+**API + Redis + Aspire Dashboard** — jedním příkazem. Vyžaduje běžící
+**Docker Desktop** (případně Docker Engine + Compose v2).
 
-1. ověří/založí **HTTPS dev certifikát** (`dotnet dev-certs https --trust` — při
-   prvním běhu potvrď systémový dialog **Ano**),
-2. spustí **Redis** v Dockeru (kontejner `order-aggregator-redis`, port 6379),
-3. spustí **Aspire Dashboard** v Dockeru (UI `:18888`, OTLP `:4317`),
-4. spustí **API** přes HTTPS a po jeho nahození **otevře prohlížeč** na Swaggeru.
+Po nahození:
 
-Vyžaduje běžící **Docker Desktop**. Porty se dají změnit nahoře v souboru
-(`HTTPS_PORT`, `HTTP_PORT`, …). Redis a Aspire běží jako pojmenované kontejnery
-na pozadí; `Ctrl+C` ukončí jen API, kontejnery zůstanou běžet.
+- **API**: `http://localhost:5047` (jen HTTP — TLS v produkci řeší reverse proxy)
+- **Swagger**: `http://localhost:5047/swagger` · **Scalar**: `http://localhost:5047/scalar/v1`
+- **Aspire Dashboard**: `http://localhost:18888`
+- `/health/live`, `/health/ready` — health checky (bez autentizace)
 
-### Ručně
+Compose přebíjí konfiguraci přes env proměnné, aby kontejnery mířily na sebe po
+interní síti místo na `localhost`: Redis (`OrderStore__Redis__ConnectionString=redis:6379`),
+OTLP (`OTEL_EXPORTER_OTLP_ENDPOINT=http://aspire:18889`) a dead-letter složku
+(`DeadLetter__Directory=/data/deadletter`, namapovanou na volume kvůli přežití
+restartu). Stack zastavíš `Ctrl+C`, případně `docker compose down`.
+
+### Ručně (bez Dockeru pro API)
 
 ```bash
 cd src
@@ -102,7 +107,9 @@ po opravě může bezpečně poslat znovu bez dvojího započtení.
 ## Observabilita (OpenTelemetry)
 
 Aplikace exportuje **metriky, trasy i logy** přes OpenTelemetry. Nejjednodušší
-způsob, jak si je prohlédnout, je **Aspire Dashboard** (jeden Docker kontejner):
+způsob, jak si je prohlédnout, je **Aspire Dashboard** — `docker compose up` ho
+nahodí jako součást stacku (UI na `http://localhost:18888`). Když pouštíš API
+ručně mimo Compose, spustíš dashboard samostatně:
 
 ```bash
 docker run --rm -it -p 18888:18888 -p 4317:18889 \
@@ -110,7 +117,7 @@ docker run --rm -it -p 18888:18888 -p 4317:18889 \
   mcr.microsoft.com/dotnet/aspire-dashboard:latest
 ```
 
-Spusť dashboard, pak API, pošli pár objednávek a otevři `http://localhost:18888`.
+Pošli pár objednávek a otevři `http://localhost:18888`.
 Uvidíš HTTP requesty, doménové metriky (počet objednávek, velikost a doba flushe,
 úspěšná odeslání vs. dead-letter) a trasu flush cyklu.
 

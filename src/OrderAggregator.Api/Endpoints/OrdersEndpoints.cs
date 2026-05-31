@@ -30,7 +30,8 @@ public static class OrdersEndpoints
             .Accepts<IReadOnlyCollection<OrderRequest>>("application/json")
             .Produces(StatusCodes.Status202Accepted)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
-            .ProducesValidationProblem();
+            .ProducesValidationProblem()
+            .ProducesProblem(StatusCodes.Status500InternalServerError);
 
         return app;
     }
