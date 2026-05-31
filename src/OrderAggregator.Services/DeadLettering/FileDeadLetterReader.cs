@@ -72,8 +72,11 @@ public sealed class FileDeadLetterReader : IDeadLetterReader
 
             return batch;
         }
-        catch (Exception ex) when (ex is JsonException or IOException)
+        catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
         {
+            // UnauthorizedAccessException does not derive from IOException, so it must be
+            // listed explicitly — a locked/permission-denied file is treated as corrupt
+            // rather than allowed to bubble out and kill the replay tick.
             _logger.LogWarning(ex, "Failed to read dead-letter file {File}; treating as corrupt", entry.Id);
             return null;
         }

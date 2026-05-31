@@ -78,7 +78,20 @@ public sealed class DeadLetterReplayService : BackgroundService
         foreach (var entry in entries)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            await ReplayEntryAsync(entry, cancellationToken).ConfigureAwait(false);
+
+            try
+            {
+                await ReplayEntryAsync(entry, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+            {
+                // Per-entry isolation: an unexpected failure on one file (e.g. quarantine
+                // move denied) must not abort the whole tick or tear down the loop — log
+                // it and move on; the file stays pending and is retried next tick. A
+                // cancellation (shutdown) is intentionally NOT caught here so it can
+                // propagate out and end the loop gracefully.
+                _logger.LogError(ex, "Unexpected error replaying dead-letter {File}; skipping this tick", entry.Id);
+            }
         }
     }
 
