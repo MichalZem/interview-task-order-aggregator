@@ -12,6 +12,26 @@ Plné zadání viz `task-description.md`.
 
 ## Jak to spustit
 
+### Rychle — všechno najednou (Windows)
+
+```bat
+run-app.bat
+```
+
+`run-app.bat` (v kořeni repa) nahodí kompletní lokální stack v tomto pořadí:
+
+1. ověří/založí **HTTPS dev certifikát** (`dotnet dev-certs https --trust` — při
+   prvním běhu potvrď systémový dialog **Ano**),
+2. spustí **Redis** v Dockeru (kontejner `order-aggregator-redis`, port 6379),
+3. spustí **Aspire Dashboard** v Dockeru (UI `:18888`, OTLP `:4317`),
+4. spustí **API** přes HTTPS a po jeho nahození **otevře prohlížeč** na Swaggeru.
+
+Vyžaduje běžící **Docker Desktop**. Porty se dají změnit nahoře v souboru
+(`HTTPS_PORT`, `HTTP_PORT`, …). Redis a Aspire běží jako pojmenované kontejnery
+na pozadí; `Ctrl+C` ukončí jen API, kontejnery zůstanou běžet.
+
+### Ručně
+
 ```bash
 cd src
 dotnet run --project OrderAggregator.Api
@@ -85,19 +105,21 @@ Uvidíš HTTP requesty, doménové metriky (počet objednávek, velikost a doba 
 Bez běžícího dashboardu se aplikace normálně spustí — telemetrie se jen nikam
 neodešle. Vypnout úplně lze přes `Observability:Enabled: false`.
 
-## Testy
-
-```bash
-cd src
-dotnet test
-```
-
-xUnit testy ve třech kategoriích: **Unit**, **Integration** (přes
-`WebApplicationFactory`) a **Architecture** (ArchUnitNET hlídá závislosti mezi
-projekty). 
-
 ## Struktura
 
 Řešení je rozdělené do projektů podle vrstev (doménové modely, kontrakty,
-rozhraní, implementace služeb, API). Detailní popis architektury a vzorů je
-v `CLAUDE.md`.
+rozhraní, implementace služeb, API).
+
+```
+src/
+├── OrderAggregator.Models/         doménové entity — leaf, nic neimportuje
+├── OrderAggregator.Contracts/      wire DTO (OrderRequest, *Dto, *Response) — leaf, ready jako klientské SDK
+├── OrderAggregator.Abstractions/   rozhraní (IOrderStore, IAggregatedOrderSender, IProductRepository, IDeadLetterWriter) — zná jen Models
+├── OrderAggregator.Resources/      lokalizované texty (.resx) + source-generated ApiMessages — leaf
+├── OrderAggregator.Shared/         sdílený kernel pod Services i Api — Configuration/ (options) + Const/ (LocalizationConstants)
+├── OrderAggregator.Services/       implementace (stores, senders, flush service, dead-lettering, diagnostics)
+├── OrderAggregator.Api/            ASP.NET Core minimal API, kompoziční kořen
+├── OrderAggregator.Tests/          xUnit — Unit/ Integration/ Architecture/
+└── OrderAggregator.LoadTests/      NBomber console runner (mimo `dotnet test`)
+```
+
