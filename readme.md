@@ -12,7 +12,16 @@ Plné zadání viz `task-description.md`.
 
 ## Jak to spustit
 
+### Pozor
+``` 
+Aktuálně je nastaveno tak, aby služba při odesílání agregovaných objednávek občas selhávala a vytvořila tak dead-letter, aby bylo vidět jak to funguje.  
+Soubory s dead-lettery se ukládají do složky `C:/TEMP/DeadLetter` .  
+Pokud chcete toto chování vypnout, nastavte `AggregatedOrderSender:Console:FailureProbability` v `appsettings.json` na 0.  
+```
+
+
 ### Rychle — všechno najednou (Windows)
+
 
 ```bat
 run-app.bat
