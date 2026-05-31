@@ -11,6 +11,13 @@ namespace OrderAggregator.Services.Stores;
 
 public sealed class RedisOrderStore : IOrderStore
 {
+    // Self-healing TTL for the renamed-aside snapshot key. On the happy path the
+    // snapshot is read and deleted within milliseconds; this expiry only matters if
+    // the process dies between the RENAME and the DELETE, so Redis reclaims the
+    // orphaned key instead of leaking it forever. Generous enough never to clip a
+    // legitimately in-progress drain.
+    private static readonly TimeSpan SnapshotOrphanTtl = TimeSpan.FromHours(1);
+
     private readonly IConnectionMultiplexer _connection;
     private readonly RedisKey _hashKey;
 
@@ -57,6 +64,8 @@ public sealed class RedisOrderStore : IOrderStore
         try
         {
             await db.KeyRenameAsync(_hashKey, snapshotKey).ConfigureAwait(false);
+
+            await db.KeyExpireAsync(snapshotKey, SnapshotOrphanTtl).ConfigureAwait(false);
         }
         catch (RedisServerException ex) when (ex.Message.Contains("no such key", StringComparison.OrdinalIgnoreCase))
         {

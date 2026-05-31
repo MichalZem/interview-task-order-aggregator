@@ -24,8 +24,8 @@ public class HealthEndpointTests : IClassFixture<OrderAggregatorTestFactory>
     {
         using var client = _factory.CreateClient();
 
-        // The flush loop hasn't ticked within its interval yet, so the heartbeat
-        // check treats it as a cold start (Healthy) rather than a stuck loop.
+        // Readiness aggregates the checks tagged "ready" and must be reachable
+        // anonymously; on a healthy host it returns 200 OK.
         var response = await client.GetAsync("/health/ready");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);

@@ -22,8 +22,8 @@ public sealed class OrderAggregatorDocumentTransformer : IOpenApiDocumentTransfo
                 "(in this demo via ConsoleAggregatedOrderSender).",
             Contact = new OpenApiContact
             {
-                Name = "source code here: https://github.com/MichalZem/cbdata-agregator",
-                Url = new Uri("https://github.com/MichalZem/cbdata-agregator"),
+                Name = "source code here: https://github.com/MichalZem/interview-task-order-aggregator",
+                Url = new Uri("https://github.com/MichalZem/interview-task-order-aggregator"),
             },
             License = new OpenApiLicense
             {

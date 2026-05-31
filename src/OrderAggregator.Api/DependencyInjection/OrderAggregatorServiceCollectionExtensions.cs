@@ -95,7 +95,7 @@ public static class OrderAggregatorServiceCollectionExtensions
         {
             case AggregatedOrderSenderKind.Console:
             default:
-                services.AddSingleton<IAggregatedOrderSender, ConsoleAggregatedOrderSender>();
+                services.TryAddSingleton<IAggregatedOrderSender, ConsoleAggregatedOrderSender>();
                 break;
         }
     }

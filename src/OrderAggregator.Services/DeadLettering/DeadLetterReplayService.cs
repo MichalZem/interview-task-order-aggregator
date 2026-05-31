@@ -85,12 +85,13 @@ public sealed class DeadLetterReplayService : BackgroundService
             }
             catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
             {
-                // Per-entry isolation: an unexpected failure on one file (e.g. quarantine
-                // move denied) must not abort the whole tick or tear down the loop — log
-                // it and move on; the file stays pending and is retried next tick. A
-                // cancellation (shutdown) is intentionally NOT caught here so it can
-                // propagate out and end the loop gracefully.
-                _logger.LogError(ex, "Unexpected error replaying dead-letter {File}; skipping this tick", entry.Id);
+                // Per-entry isolation: an unexpected failure on one file (e.g. a payload
+                // that escapes ReadAsync's filter, or a denied quarantine move) must not
+                // abort the tick or tear down the loop. Count it against the same attempt
+                // budget as a failed send so a persistently broken file is eventually
+                // quarantined instead of being retried forever. A cancellation (shutdown)
+                // is intentionally NOT caught so it can propagate and end the loop.
+                await RegisterFailedAttemptAsync(entry, ex, "unexpected error", cancellationToken).ConfigureAwait(false);
             }
         }
     }
@@ -123,29 +124,52 @@ public sealed class DeadLetterReplayService : BackgroundService
         }
         catch (Exception ex)
         {
-            var attempt = _attempts[entry.Id] = _attempts.GetValueOrDefault(entry.Id) + 1;
             activity?.SetStatus(ActivityStatusCode.Error, "send failed");
+            await RegisterFailedAttemptAsync(entry, ex, "send failed", cancellationToken).ConfigureAwait(false);
+        }
+    }
 
-            if (attempt >= _options.MaxReplayAttempts)
-            {
-                _logger.LogError(
-                    ex,
-                    "Dead-letter {File} failed replay {Attempt}/{MaxAttempts}; quarantining",
-                    entry.Id,
-                    attempt,
-                    _options.MaxReplayAttempts);
-                _attempts.Remove(entry.Id);
-                await QuarantineAsync(entry, cancellationToken).ConfigureAwait(false);
-            }
-            else
-            {
-                _logger.LogWarning(
-                    ex,
-                    "Dead-letter {File} failed replay {Attempt}/{MaxAttempts}; will retry next tick",
-                    entry.Id,
-                    attempt,
-                    _options.MaxReplayAttempts);
-            }
+    /// <summary>
+    /// Count one failed attempt for the entry and quarantine it once the attempt budget
+    /// (<see cref="DeadLetterOptions.MaxReplayAttempts"/>) is exhausted. Shared by a failed
+    /// downstream send and by any unexpected per-entry error, so every kind of persistent
+    /// failure converges on quarantine instead of being retried forever. Never throws: a
+    /// failed quarantine move is logged and the entry is left for a later tick.
+    /// </summary>
+    private async Task RegisterFailedAttemptAsync(DeadLetterEntry entry, Exception ex, string reason, CancellationToken cancellationToken)
+    {
+        var attempt = _attempts[entry.Id] = _attempts.GetValueOrDefault(entry.Id) + 1;
+
+        if (attempt < _options.MaxReplayAttempts)
+        {
+            _logger.LogWarning(
+                ex,
+                "Dead-letter {File} replay failed ({Reason}) {Attempt}/{MaxAttempts}; will retry next tick",
+                entry.Id,
+                reason,
+                attempt,
+                _options.MaxReplayAttempts);
+            return;
+        }
+
+        _logger.LogError(
+            ex,
+            "Dead-letter {File} replay failed ({Reason}) {Attempt}/{MaxAttempts}; quarantining",
+            entry.Id,
+            reason,
+            attempt,
+            _options.MaxReplayAttempts);
+        _attempts.Remove(entry.Id);
+
+        try
+        {
+            await QuarantineAsync(entry, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception quarantineEx) when (!cancellationToken.IsCancellationRequested)
+        {
+            // Couldn't move the file aside (e.g. permission denied). Don't let it tear down
+            // the loop; it stays pending and the quarantine is retried on a later tick.
+            _logger.LogError(quarantineEx, "Failed to quarantine dead-letter {File}", entry.Id);
         }
     }
 

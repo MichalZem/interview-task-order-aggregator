@@ -37,7 +37,7 @@ src/
 ```bash
 cd src
 dotnet build
-dotnet test                                   # Redis testy se bez Dockeru Skipnou, s Dockerem běží
+dotnet test                                   
 dotnet run --project OrderAggregator.Api
 
 # Load test (vyžaduje běžící API; env LOADTEST_URL / LOADTEST_API_KEY / LOADTEST_RPS / LOADTEST_DURATION)
@@ -64,10 +64,9 @@ Dev URL: typicky `http://localhost:5000` (port z `launchSettings.json`). Po star
   (`Unit`/`Integration`/`Architecture`, konstanty v `TestCategories.cs`).
   CLI: `dotnet test --filter Category=Unit`.
 - Novou třídu zařaď do správné složky **i** označ Traitem.
-- **Docker-dependent testy** (`RedisOrderStoreTests`): `[SkippableFact]`
-  (`Xunit.SkippableFact`) + fixture `RedisFixture`, která staví kontejner
+- **Docker-dependent testy** (`RedisOrderStoreTests`): + fixture `RedisFixture`, která staví kontejner
   **uvnitř `InitializeAsync`** (ne v ctor — `RedisBuilder` řeší Docker eagerly).
-  Bez Dockeru → Skipped, s Dockerem → běží. Stejný vzor pro každou externí službu.
+ 
 
 ## Architektonické invarianty (vynucené ArchUnitNET testy)
 
@@ -94,7 +93,9 @@ automaticky. **Pozor:** bezparametrové `NotDependOnAny()` je tichý no-op
     rychlejší i jednodušší než `ReaderWriterLockSlim` + `ConcurrentDictionary`.
   - **`RedisOrderStore`** — buffer je Redis hash (`HINCRBY` per productId).
     `AddAsync` přes `MULTI`/`EXEC` transakci (all-or-nothing, retry nezapočte
-    dvakrát). Drain: atomický `RENAME` stranou + `HGETALL` + `DEL`. Klíč je
+    dvakrát). Drain: atomický `RENAME` stranou + `HGETALL` + `DEL`; na snapshot
+    klíč se hned po `RENAME` nasadí TTL (`SnapshotOrphanTtl`, 1 h) jako pojistka —
+    pád mezi `RENAME` a `DEL` tak klíč nenechá v Redisu navždy, sám expiruje. Klíč je
     **per-instance** (`{HashKey}:{InstanceId}`) — víc instancí nad sdíleným
     Redisem si nelezou do dat, každá posílá vlastní snapshot. `InstanceId`
     z konfigurace, prázdný → `Environment.MachineName`. Přežije restart.
@@ -121,8 +122,12 @@ automaticky. **Pozor:** bezparametrové `NotDependOnAny()` je tichý no-op
 - `FileDeadLetterWriter` píše JSON (`DeadLetter:Directory`, default `DeadLetter`)
   **atomicky** (temp + `File.Move`), camelCase = přesně to, co se nepodařilo
   odeslat → jde replaynout. Selže-li i zápis, `LogCritical` („data lost").
-- **Graceful shutdown**: flush loop dělá při vypnutí finální drain + send.
-  `Program.cs` má `HostOptions.ShutdownTimeout = 30 s`, ať to stihne doběhnout.
+- **Graceful shutdown**: flush loop dělá při vypnutí finální drain + send, ale jen
+  pokud od posledního odeslání uplynul aspoň jeden interval (`ShouldFinalFlush` přes
+  `TimeProvider`) — finální drain tak neporuší kontrakt „≤ 1 odeslání / 20 s". Zbytek
+  bufferu si přebere trvalý store (Redis) při příštím startu; u in-memory je okno
+  shodné s tím, co stejně ztrácí restartem. `Program.cs` má
+  `HostOptions.ShutdownTimeout = 30 s`, ať se to stihne.
 
 ### Dead-letter replay (postupné doodeslání)
 - Bez čtenáře by se soubory v dead-letteru hromadily donekonečna. `DeadLetterReplayService`
@@ -141,7 +146,11 @@ automaticky. **Pozor:** bezparametrové `NotDependOnAny()` je tichý no-op
   liší od flush service). Úspěch → `DeleteAsync` + metrika. Selhání → **in-memory čítač**
   pokusů (`Dictionary` ve službě, restart vynuluje — karanténa je pojistka, ne exactly-once);
   po `MaxReplayAttempts` → `QuarantineAsync` přesune soubor do `DeadLetter:PoisonDirectory`
-  (default `poison`, podadresář pod `Directory`), aby neblokoval frontu.
+  (default `poison`, podadresář pod `Directory`), aby neblokoval frontu. Čítač sdílí
+  jedna cesta (`RegisterFailedAttemptAsync`) pro **selhaný send i jakoukoli neočekávanou
+  chybu** (nečitelný payload mimo filtr `ReadAsync`, odepřený přesun do karantény) →
+  i trvale rozbitý soubor nakonec skončí v karanténě místo nekonečného opakování;
+  samotné selhání karantény se zaloguje a smyčku neshodí.
 - **Re-send přímo přes `IAggregatedOrderSender`** (ne re-enqueue do storu) → zachová původní
   dávku i `FlushedAt`, nezdvojí počty.
 - **Idempotency key — `OrderBatch.BatchId` (Guid).** Pravá transakce přes downstream + filesystem
@@ -270,6 +279,44 @@ automaticky. **Pozor:** bezparametrové `NotDependOnAny()` je tichý no-op
 - **Testy bez `FluentAssertions`** (licence v8) — čisté `Assert.*`.
 - **Komentáře v kódu anglicky** (vysvětlují *proč*, ne *co*). Anglicky i OpenAPI
   popisy. Česky zůstávají jen texty pro recenzenta: README a `.resx` pro cs kulturu.
+
+## Čistý kód — povinná konvence
+
+Veškerý nový i upravovaný kód musí dodržovat principy čistého kódu. Tohle není
+„nice to have", je to **vstupní podmínka pro merge**.
+
+- **DRY (Don't Repeat Yourself)** — žádné copy-paste. Opakovaný kód/logiku
+  vytáhni do sdílené metody, helperu nebo extension. Pozor i na duplicitu
+  *znalosti* (magické konstanty, stejná validace na dvou místech).
+- **KISS (Keep It Simple)** — nejjednodušší řešení, které splní požadavek.
+  Žádná spekulativní abstrakce „pro budoucnost" (YAGNI). Abstrakci přidej až
+  ji reálně potřebuješ (vzor: pluggable `IOrderStore`/`IAggregatedOrderSender`
+  vznikl z konkrétní potřeby, ne preventivně).
+- **SOLID**:
+  - *SRP* — jedna třída/metoda = jedna odpovědnost a jeden důvod ke změně
+    (viz oddělení store / sender / flush service / dead-lettering).
+  - *OCP* — rozšiřuj přidáním nové větve/třídy, ne přepisem stávající
+    (switche `RegisterOrderStore`/`RegisterAggregatedOrderSender`).
+  - *LSP* — implementace rozhraní musí být zaměnitelné bez překvapení.
+  - *ISP* — malá, cílená rozhraní (`IDeadLetterWriter` × `IDeadLetterReader`
+    odděleně, ne jeden tlustý interface).
+  - *DIP* — závisíme na abstrakcích z `Abstractions/`, ne na konkrétních typech;
+    konkrétní implementace dodává až kompoziční kořen (`Api`).
+- **Malé metody** — metoda dělá jednu věc, vejde se na obrazovku, minimum
+  vnořených úrovní. Dlouhou metodu rozsekej na pojmenované privátní kroky.
+- **Vypovídající názvy** — odhalí záměr (`AcceptOrdersAsync`, `ReplayOnceAsync`).
+  Žádné zkratky bez kontextu, žádné `tmp`/`data2`. Název > komentář.
+- **Komentáře vysvětlují „proč", ne „co"** — kód čitelný sám o sobě;
+  komentář jen tam, kde je nutný kontext rozhodnutí (anglicky, viz Konvence).
+- **Guard clauses & early return** — místo hluboké pyramidy `if`ů; nešťastnou
+  cestu řeš na začátku, happy path nech plochou.
+- **Žádné mrtvé/zakomentované bloky** — nepoužitý kód smaž (historie je v gitu).
+- **Konzistence se stávajícím kódem** — nový kód vypadá jako okolní (idiom,
+  pojmenování, hustota komentářů). Při pochybnostech kopíruj zavedený vzor.
+
+Build vynucuje kvalitu i strojově: `TreatWarningsAsErrors=true` (warning = chyba)
+a ArchUnitNET testy hlídají vrstvy. Čistý kód jde **nad rámec** těchto kontrol —
+splň oboje.
 
 ## Soubory v repu (mimo `src/`)
 

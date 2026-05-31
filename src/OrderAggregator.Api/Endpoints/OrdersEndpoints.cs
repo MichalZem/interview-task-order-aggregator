@@ -81,7 +81,7 @@ public static class OrdersEndpoints
 
                 failures[failure.Key] = new string[] { failure.Message };
             }
-            else
+            else if (failures is null)
             {
                 orders.Add(new Order(request.ProductId, request.Quantity));
             }

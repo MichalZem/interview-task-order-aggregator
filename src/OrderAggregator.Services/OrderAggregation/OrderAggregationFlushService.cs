@@ -58,10 +58,10 @@ public sealed class OrderAggregationFlushService : BackgroundService
             // Shutdown requested.
         }
 
-        _logger.LogInformation("Performing final flush before shutdown");
+            _logger.LogInformation("Performing final flush before shutdown");
 
-        await FlushOnceAsync().ConfigureAwait(false);
-    }
+            await FlushOnceAsync().ConfigureAwait(false);
+        }
 
     internal async Task FlushOnceAsync()
     {
