@@ -17,6 +17,9 @@ public sealed class OrderStoreOptions
 
     /// <summary>Redis-specific settings, used only when <see cref="Kind"/> is <c>Redis</c>.</summary>
     public RedisOrderStoreOptions Redis { get; set; } = new();
+
+    /// <summary>SQLite-specific settings, used only when <see cref="Kind"/> is <c>Sqlite</c>.</summary>
+    public SqliteOrderStoreOptions Sqlite { get; set; } = new();
 }
 
 public enum OrderStoreKind
@@ -26,6 +29,21 @@ public enum OrderStoreKind
 
     /// <summary>Redis-backed buffer (HINCRBY hash). Survives restarts and is shared across instances.</summary>
     Redis,
+
+    /// <summary>
+    /// SQLite-backed buffer (single local file), write-through — one commit/fsync
+    /// per request. The simplest persistent option for a single-instance/local
+    /// deployment. Throughput is bounded by the disk's fsync rate.
+    /// </summary>
+    Sqlite,
+
+    /// <summary>
+    /// SQLite-backed buffer with group commit — same file and durability as
+    /// <see cref="Sqlite"/>, but a single writer coalesces concurrent requests into
+    /// one fsync, lifting the throughput ceiling. Reuses the same <c>Sqlite</c>
+    /// options. Use this variant to benchmark group commit against write-through.
+    /// </summary>
+    SqliteGroupCommit,
 }
 
 /// <summary>
@@ -64,4 +82,28 @@ public sealed class RedisOrderStoreOptions
     /// explicitly only when the host name isn't unique or stable enough.
     /// </summary>
     public string InstanceId { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// Configuration for <c>SqliteOrderStore</c>. The aggregation buffer lives in a
+/// single local SQLite file (productId → quantity); increments are atomic UPSERTs
+/// and the drain atomically selects-then-deletes in one transaction, so concurrent
+/// writers never lose increments. The file survives restarts, so on startup the
+/// store re-attaches to any buffer left behind.
+/// <para>
+/// The file is <b>local to this process</b> — like the dead-letter directory, a
+/// multi-process / multi-instance setup pointing at the same file is out of scope
+/// (both would drain it and double-send). Use Redis for a shared deployment.
+/// </para>
+/// </summary>
+public sealed class SqliteOrderStoreOptions
+{
+    /// <summary>
+    /// Filesystem path to the SQLite database file. Created on first run if missing;
+    /// reused (and its leftover buffer replayed) on subsequent starts. Required when
+    /// the store kind is Sqlite.
+    /// </summary>
+    [Required]
+    [StringLength(1024, MinimumLength = 1)]
+    public string DataSource { get; set; } = "Data/order-buffer.db";
 }

@@ -113,8 +113,8 @@ automaticky. **Pozor:** bezparametrové `NotDependOnAny()` je tichý no-op
 ## Klíčové vzory
 
 ### Persistence + sender jsou pluggable
-- `IOrderStore` — agregační buffer, dvě implementace v `Services/Stores/`,
-  výběr přes `OrderStore:Kind` (`InMemory` | `Redis`):
+- `IOrderStore` — agregační buffer, čtyři implementace v `Services/Stores/`,
+  výběr přes `OrderStore:Kind` (`InMemory` | `Redis` | `Sqlite` | `SqliteGroupCommit`):
   - **`InMemoryOrderStore`** (default) — jeden `Lock` + plain `Dictionary` swap
     (drain prohodí referenci za prázdný slovník). Load testem ověřeno jako
     rychlejší i jednodušší než `ReaderWriterLockSlim` + `ConcurrentDictionary`.
@@ -127,6 +127,45 @@ automaticky. **Pozor:** bezparametrové `NotDependOnAny()` je tichý no-op
     Redisem si nelezou do dat, každá posílá vlastní snapshot. `InstanceId`
     z konfigurace, prázdný → `Environment.MachineName`. Přežije restart.
     `IConnectionMultiplexer` je singleton (registruje se jen pro `Redis`).
+  - **`SqliteOrderStore`** — buffer je jeden lokální SQLite soubor (tabulka
+    `buffer(product_id, quantity)`). Nejjednodušší trvalé úložiště **bez serveru**
+    pro lokální/single-instance běh. `AddAsync` přičítá přes UPSERT
+    (`ON CONFLICT … DO UPDATE SET quantity = quantity + excluded.quantity`) v jedné
+    transakci na request; drain je atomický `SELECT` + `DELETE` v jedné transakci
+    (obdoba Redisova `RENAME` stranou — nic se neztratí mezi čtením a vynulováním).
+    Jedno otevřené `SqliteConnection`, zápisy serializované `SemaphoreSlim` (SQLite
+    má jednoho zapisovatele; Microsoft.Data.Sqlite nedovolí překryté commandy).
+    `PRAGMA journal_mode=WAL` + `synchronous=FULL` (fsync na každý commit = max
+    durabilita, volba uživatele) + `busy_timeout`. Schéma se zakládá v ctoru
+    (fail-fast při startu). **Recovery**: soubor přežije restart, `CREATE TABLE
+    IF NOT EXISTS` + otevření existujícího souboru → zbylý buffer se příští flush
+    odešle. **Lokální per-proces** (jako dead-letter adresář) — víc procesů nad
+    jedním souborem je mimo rozsah (oba by drainovali → dvojí odeslání); na sdílené
+    nasazení je Redis. `INTEGER` je 64-bit → součty nad `int.MaxValue` projdou.
+    Konfig sekce `OrderStore:Sqlite:DataSource` (default `Data/order-buffer.db`).
+    Strop ~500 req/s (= fsync rychlost disku, jeden commit/request).
+  - **`SqliteGroupCommitOrderStore`** — stejný soubor i durabilita jako `Sqlite`,
+    ale **group-commit**: jeden writer thread (`Channel<WriteOp>` + smyčka v ctoru
+    spuštěná `Task.Run`) slévá všechny requesty, co dorazí během probíhajícího
+    commitu, do **jedné transakce = jednoho fsyncu**. `AddAsync`/`SnapshotAndClear`
+    jsou work-items ve frontě (connection je tak single-threaded **bez zámku**);
+    drain coalesce zastaví na snapshotu (FIFO pořadí). `AddAsync` se dokončí až po
+    commitu na disk → klient nikdy nedostane ACK na ztracená data (neacknutý zápis
+    se neztratí tiše, jen se nepotvrdí a klient ho retrynne se stejným `BatchId`).
+    `TaskCompletionSource(RunContinuationsAsynchronously)`, aby continuation
+    nezablokovala writer. Selhání commitu faultne celou dávku najednou (nezdvojí
+    počty). `DisposeAsync`: `Writer.Complete()` → dočká writer (dodraní frontu) →
+    zavře spojení. **Výběr OrderStore:Kind=SqliteGroupCommit; reuse `OrderStore:Sqlite`
+    options** (stejný DB soubor) — záměrně samostatný provider, ať jde A/B testovat
+    proti write-through `Sqlite` stejným load testem.
+    - **Společný kód** obou SQLite storeů v `SqliteBuffer` (internal static):
+      `OpenInitialized` (otevření + WAL/FULL pragma + DDL), `ApplyAsync`
+      (UPSERT dávky v jedné transakci), `SnapshotAndClearAsync`. Storey se liší
+      jen *jak* serializují přístup ke spojení (semaphore × writer thread).
+    - **Naměřeno** (load test, lokální SSD): write-through `Sqlite` čisté ~300 req/s,
+      strop ~500; group-commit komfortně ~16 000 req/s (p99 27 ms, 0 selhání), koleno
+      ~24 000 req/s — pak už limituje HTTP/socket vrstva, ne disk. ~32–50× zrychlení
+      při stejné durabilitě. Viz paměť `sqlite-store-throughput`.
 - `IAggregatedOrderSender` — odchozí sink v `Services/Senders/`, zatím jen
   `ConsoleAggregatedOrderSender`, výběr přes `AggregatedOrderSender:Kind`
   (`Console`). Switch připravený přidat Http/Kafka jako novou větev + třídu.

@@ -79,6 +79,14 @@ public static class OrderAggregatorServiceCollectionExtensions
                     .AddCheck<RedisHealthCheck>("redis", tags: [HealthChecksExtensions.ReadyTag]);
                 break;
 
+            case OrderStoreKind.Sqlite:
+                services.TryAddSingleton<IOrderStore, SqliteOrderStore>();
+                break;
+
+            case OrderStoreKind.SqliteGroupCommit:
+                services.TryAddSingleton<IOrderStore, SqliteGroupCommitOrderStore>();
+                break;
+
             case OrderStoreKind.InMemory:
             default:
                 services.TryAddSingleton<IOrderStore, InMemoryOrderStore>();

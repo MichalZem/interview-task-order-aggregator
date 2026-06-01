@@ -70,7 +70,8 @@ Po startu (port viz výpis v konzoli, typicky `https://localhost:7282`):
 
 > Výchozí konfigurace používá **Redis** jako úložiště. Buď spusť Redis
 > (`docker run --rm -p 6379:6379 redis`), nebo v `appsettings.json` přepni
-> `OrderStore:Kind` na `InMemory`.
+> `OrderStore:Kind` na `InMemory`, `Sqlite` či `SqliteGroupCommit` (žádný server
+> nepotřebují) — viz [Úložiště bufferu](#úložiště-bufferu--porovnání).
 
 ## Volání API
 
@@ -97,12 +98,65 @@ po opravě může bezpečně poslat znovu bez dvojího započtení.
 
 | Sekce | K čemu |
 |---|---|
-| `OrderStore` | úložiště bufferu — `InMemory` nebo `Redis` |
+| `OrderStore` | úložiště bufferu — `InMemory`, `Redis`, `Sqlite` nebo `SqliteGroupCommit` (viz [Úložiště bufferu](#úložiště-bufferu--porovnání)) |
 | `Aggregation` | interval flushe, počet retry pokusů |
 | `AggregatedOrderSender` | kam se posílá snapshot (zatím `Console`) |
 | `DeadLetter` | složka pro neodeslané dávky |
 | `Observability` | OpenTelemetry — viz níže |
 | `ApiKey` | API klíče a název hlavičky |
+
+## Úložiště bufferu — porovnání
+
+Agregační buffer je **pluggable** — vybírá se přes `OrderStore:Kind`. Jsou čtyři
+implementace, od nejjednodušší (paměť) po nejrobustnější (Redis):
+
+| Provider | Přežije restart | Sdílení přes víc instancí | Externí závislost | Kdy použít |
+|---|:---:|:---:|---|---|
+| `InMemory` | ❌ | ❌ | žádná | dev / testy |
+| `Redis` | ✅ | ✅ | Redis server | produkce, víc instancí za load balancerem |
+| `Sqlite` | ✅ | ❌ (lokální soubor) | žádná | lokální / single-instance, maximální jednoduchost |
+| `SqliteGroupCommit` | ✅ | ❌ (lokální soubor) | žádná | lokální / single-instance, vysoká propustnost |
+
+Obě SQLite varianty ukládají do **jednoho lokálního souboru** (žádný server) v režimu
+maximální bezpečnosti (`WAL` + `synchronous=FULL` — data jsou na disku, než klient
+dostane potvrzení). Liší se jen tím, jak zapisují:
+
+- **`Sqlite`** (write-through) — každý požadavek se uloží zvlášť (jeden zápis na disk
+  na požadavek). Nejjednodušší, ale strop je dán rychlostí disku.
+- **`SqliteGroupCommit`** — jeden zapisovací thread **slévá** požadavky, které dorazí
+  během probíhajícího zápisu, do jediného uložení na disk. Stejná bezpečnost, ale
+  násobně vyšší propustnost.
+
+### Naměřená propustnost
+
+Změřeno pomocí `OrderAggregator.LoadTests` (NBomber) — Release, lokální HTTP, fault
+injection vypnutá, dávka 1–5 objednávek na požadavek, 12 s běhu + 3 s warm-up,
+lokální SSD:
+
+| Provider | Propustnost (0 chyb) | Latence p50 / p95 | Čím je limitován |
+|---|---|---|---|
+| `InMemory` | ~16 000 req/s | 14 / 100 ms | HTTP/CPU + globální lock |
+| `Redis` | ~16 000 req/s | 8 / 37 ms | HTTP/CPU + round-trip na Redis |
+| `Sqlite` | **~300 req/s** (strop ~500) | 9 / 41 ms | **fsync disku** — 1 commit / požadavek |
+| `SqliteGroupCommit` | **~24 000 req/s** | 40 / 89 ms | HTTP/CPU — disk už ne |
+
+> **Jak číst čísla.** Dávka veze průměrně ~3 objednávky, takže v *objednávkách* je
+> propustnost zhruba 3× vyšší (i `Sqlite` tak zvládá ~900 obj./s — zadání „stovky
+> objednávek/s" splní všechny varianty). Nad pár tisíc req/s je úzkým hrdlem už
+> **HTTP příjem + generátor zátěže na stejném stroji**, ne úložiště — proto se čísla
+> `InMemory`, `Redis` a `SqliteGroupCommit` nahoře sbíhají a odrážejí spíš testovací
+> stroj než syrovou rychlost storu. Jediný skutečně **úložištěm** limitovaný je
+> `Sqlite` write-through (~500 req/s = fsync disku). Slévání zápisů
+> (`SqliteGroupCommit`) tenhle limit odstraní → ~50× vyšší strop při **stejné**
+> durabilitě.
+
+Přepnutím `OrderStore:Kind` a spuštěním stejného load testu si kterékoli dvě varianty
+porovnáš sám:
+
+```bash
+cd src
+dotnet run -c Release --project OrderAggregator.LoadTests   # vyžaduje běžící API
+```
 
 ## Observabilita (OpenTelemetry)
 
