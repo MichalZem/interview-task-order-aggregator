@@ -25,8 +25,8 @@ namespace OrderAggregator.Services.Stores;
 /// </summary>
 public sealed class SqliteGroupCommitOrderStore : IOrderStore, IAsyncDisposable
 {
-    private readonly Channel<WriteOp> _channel =
-        Channel.CreateUnbounded<WriteOp>(new UnboundedChannelOptions { SingleReader = true });
+    private readonly Channel<OrdersWorkItem> _channel =
+        Channel.CreateUnbounded<OrdersWorkItem>(new UnboundedChannelOptions { SingleReader = true });
     private readonly SqliteConnection _connection;
     private readonly Task _writerLoop;
 
@@ -41,7 +41,7 @@ public sealed class SqliteGroupCommitOrderStore : IOrderStore, IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(orders);
 
-        var op = new AddOp(orders);
+        var op = new AddOrdersWorkItem(orders);
         if (!_channel.Writer.TryWrite(op))
         {
             throw new InvalidOperationException("Order store is shutting down.");
@@ -53,7 +53,7 @@ public sealed class SqliteGroupCommitOrderStore : IOrderStore, IAsyncDisposable
 
     public ValueTask<IReadOnlyCollection<AggregatedOrder>> SnapshotAndClearAsync()
     {
-        var op = new SnapshotOp();
+        var op = new SnapshotOrdersWorkItem();
         if (!_channel.Writer.TryWrite(op))
         {
             throw new InvalidOperationException("Order store is shutting down.");
@@ -76,21 +76,26 @@ public sealed class SqliteGroupCommitOrderStore : IOrderStore, IAsyncDisposable
         var reader = _channel.Reader;
         while (await reader.WaitToReadAsync().ConfigureAwait(false))
         {
-            var adds = new List<AddOp>();
-            SnapshotOp? snapshot = null;
+            var adds = new List<AddOrdersWorkItem>();
+            SnapshotOrdersWorkItem? snapshot = null;
 
             // Drain everything available right now. Coalesce consecutive adds into
             // one transaction; stop at a snapshot so FIFO ordering is preserved
             // (adds queued before it are committed first, ones after it next loop).
+            // TryRead only takes what is already queued (no disk wait here), so this
+            // terminates as soon as the queue is momentarily empty — it does not block
+            // on new arrivals. Unbounded growth is prevented by backpressure, not by
+            // this loop: AddAsync completes only after commit, so in-flight adds are
+            // bounded by the number of concurrent callers, not by drain speed.
             while (reader.TryRead(out var op))
             {
-                if (op is AddOp add)
+                if (op is AddOrdersWorkItem add)
                 {
                     adds.Add(add);
                 }
                 else
                 {
-                    snapshot = (SnapshotOp)op;
+                    snapshot = (SnapshotOrdersWorkItem)op;
                     break;
                 }
             }
@@ -107,7 +112,7 @@ public sealed class SqliteGroupCommitOrderStore : IOrderStore, IAsyncDisposable
         }
     }
 
-    private async Task FlushAddsAsync(List<AddOp> adds)
+    private async Task FlushAddsAsync(List<AddOrdersWorkItem> adds)
     {
         try
         {
@@ -129,7 +134,7 @@ public sealed class SqliteGroupCommitOrderStore : IOrderStore, IAsyncDisposable
         }
     }
 
-    private async Task RunSnapshotAsync(SnapshotOp snapshot)
+    private async Task RunSnapshotAsync(SnapshotOrdersWorkItem snapshot)
     {
         try
         {
@@ -142,9 +147,9 @@ public sealed class SqliteGroupCommitOrderStore : IOrderStore, IAsyncDisposable
         }
     }
 
-    private abstract class WriteOp;
+    private abstract class OrdersWorkItem;
 
-    private sealed class AddOp(IEnumerable<Order> orders) : WriteOp
+    private sealed class AddOrdersWorkItem(IEnumerable<Order> orders) : OrdersWorkItem
     {
         public IEnumerable<Order> Orders { get; } = orders;
 
@@ -154,7 +159,7 @@ public sealed class SqliteGroupCommitOrderStore : IOrderStore, IAsyncDisposable
             new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
 
-    private sealed class SnapshotOp : WriteOp
+    private sealed class SnapshotOrdersWorkItem : OrdersWorkItem
     {
         public TaskCompletionSource<IReadOnlyCollection<AggregatedOrder>> Completion { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
