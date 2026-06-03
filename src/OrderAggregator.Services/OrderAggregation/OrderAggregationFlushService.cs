@@ -25,7 +25,7 @@ public sealed class OrderAggregationFlushService : BackgroundService
         IDeadLetterWriter deadLetter,
         IOptions<AggregationOptions> options,
         ILogger<OrderAggregationFlushService> logger,
-        TimeProvider? timeProvider = null,
+        TimeProvider timeProvider,
         OrderAggregationMetrics? metrics = null)
     {
         ArgumentNullException.ThrowIfNull(options);

@@ -36,7 +36,7 @@ public sealed class DeadLetterReplayService : BackgroundService
         IAggregatedOrderSender sender,
         IOptions<DeadLetterOptions> options,
         ILogger<DeadLetterReplayService> logger,
-        TimeProvider? timeProvider = null,
+        TimeProvider timeProvider,
         OrderAggregationMetrics? metrics = null)
     {
         ArgumentNullException.ThrowIfNull(options);
@@ -44,7 +44,7 @@ public sealed class DeadLetterReplayService : BackgroundService
         _reader = reader ?? throw new ArgumentNullException(nameof(reader));
         _sender = sender ?? throw new ArgumentNullException(nameof(sender));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        _timeProvider = timeProvider ?? TimeProvider.System;
+        _timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
         _metrics = metrics;
     }
 
