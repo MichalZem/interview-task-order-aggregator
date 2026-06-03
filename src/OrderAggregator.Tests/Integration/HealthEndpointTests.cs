@@ -12,22 +12,29 @@ public class HealthEndpointTests : IClassFixture<OrderAggregatorTestFactory>
     [Fact]
     public async Task Liveness_ReturnsOk_Anonymously()
     {
+        // Arrange
         using var client = _factory.CreateClient();
 
+        // Act
         var response = await client.GetAsync("/health/live");
 
+        // Assert
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
     [Fact]
     public async Task Readiness_ReturnsOk_OnColdStart_Anonymously()
     {
+        // Arrange
         using var client = _factory.CreateClient();
 
-        // Readiness aggregates the checks tagged "ready" and must be reachable
-        // anonymously; on a healthy host it returns 200 OK.
+        // Act
+        // InMemory store registers no "ready"-tagged checks, so readiness aggregates
+        // an empty set and reports 200 — this asserts the endpoint wiring + anonymous
+        // access. The Redis variants (live + down) live in HealthReadinessRedisTests.
         var response = await client.GetAsync("/health/ready");
 
+        // Assert
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 }

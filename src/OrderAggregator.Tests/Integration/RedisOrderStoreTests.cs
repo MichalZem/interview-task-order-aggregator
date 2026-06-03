@@ -16,8 +16,10 @@ public sealed class RedisOrderStoreTests : IClassFixture<RedisOrderStoreTests.Re
     [Fact]
     public async Task AddAsync_AggregatesQuantitiesByProductId()
     {
+        // Arrange
         var store = CreateStore();
 
+        // Act
         await store.AddAsync(
         [
             new Order("456", 5),
@@ -27,6 +29,7 @@ public sealed class RedisOrderStoreTests : IClassFixture<RedisOrderStoreTests.Re
 
         var snapshot = await store.SnapshotAndClearAsync();
 
+        // Assert
         Assert.Equal(2, snapshot.Count);
         Assert.Equal(8, snapshot.Single(o => o.ProductId == "456").Quantity);
         Assert.Equal(42, snapshot.Single(o => o.ProductId == "789").Quantity);
@@ -35,11 +38,13 @@ public sealed class RedisOrderStoreTests : IClassFixture<RedisOrderStoreTests.Re
     [Fact]
     public async Task AddAsync_CommitsAllProductsInOneBatch()
     {
+        // Arrange
         // A single request carrying several distinct productIds must apply every
         // increment — exercises the MULTI/EXEC transaction queuing more than one
         // command and committing them as a whole.
         var store = CreateStore();
 
+        // Act
         await store.AddAsync(
         [
             new Order("a", 1),
@@ -49,6 +54,7 @@ public sealed class RedisOrderStoreTests : IClassFixture<RedisOrderStoreTests.Re
 
         var snapshot = await store.SnapshotAndClearAsync();
 
+        // Assert
         Assert.Equal(3, snapshot.Count);
         Assert.Equal(1, snapshot.Single(o => o.ProductId == "a").Quantity);
         Assert.Equal(2, snapshot.Single(o => o.ProductId == "b").Quantity);
@@ -58,64 +64,79 @@ public sealed class RedisOrderStoreTests : IClassFixture<RedisOrderStoreTests.Re
     [Fact]
     public async Task SnapshotAndClear_PreservesQuantitiesAboveIntMax()
     {
+        // Arrange
         // HINCRBY accumulates a 64-bit counter; the drain reads it as long. Verify
         // a total beyond int.MaxValue round-trips intact (the re-queue path in the
         // flush service splits such totals back into int-sized chunks).
         var store = CreateStore();
         const long overInt = (long)int.MaxValue + 100;
 
+        // Act
         await store.AddAsync([new Order("big", int.MaxValue)]);
         await store.AddAsync([new Order("big", 100)]);
 
         var snapshot = await store.SnapshotAndClearAsync();
 
+        // Assert
         Assert.Equal(overInt, snapshot.Single(o => o.ProductId == "big").Quantity);
     }
 
     [Fact]
     public async Task SnapshotAndClear_ResetsState()
     {
+        // Arrange
         var store = CreateStore();
         await store.AddAsync([new Order("a", 1)]);
 
+        // Act
         await store.SnapshotAndClearAsync();
         var second = await store.SnapshotAndClearAsync();
 
+        // Assert
         Assert.Empty(second);
     }
 
     [Fact]
     public async Task SnapshotAndClear_ReturnsEmpty_WhenNothingWritten()
     {
+        // Arrange
         var store = CreateStore();
 
+        // Act
         var snapshot = await store.SnapshotAndClearAsync();
 
+        // Assert
         Assert.Empty(snapshot);
     }
 
     [Fact]
     public async Task Requeue_AddsBackOntoExistingTotals()
     {
+        // Arrange
         var store = CreateStore();
         await store.AddAsync([new Order("p", 7)]);
 
+        // Act
         var drained = await store.SnapshotAndClearAsync();
         await store.AddAsync([new Order("p", 4)]);                 // new traffic after drain
         await store.AddAsync(drained.Select(a => new Order(a.ProductId, (int)a.Quantity)));
 
         var snapshot = await store.SnapshotAndClearAsync();
+
+        // Assert
         Assert.Equal(11, snapshot.Single(o => o.ProductId == "p").Quantity);
     }
 
     [Fact]
     public async Task AddAsync_IsAtomic_UnderConcurrentWriters()
     {
+        // Arrange
         var store = CreateStore();
         const int Writers = 16;
         const int OrdersPerWriter = 500;
         const int ProductCount = 25;
 
+        // Act
         await Parallel.ForEachAsync(
             Enumerable.Range(0, Writers),
             async (_, _) =>
@@ -130,6 +151,7 @@ public sealed class RedisOrderStoreTests : IClassFixture<RedisOrderStoreTests.Re
 
         var snapshot = await store.SnapshotAndClearAsync();
 
+        // Assert
         var expectedPerProduct = (long)Writers * OrdersPerWriter / ProductCount;
         Assert.Equal(ProductCount, snapshot.Count);
         Assert.All(snapshot, agg => Assert.Equal(expectedPerProduct, agg.Quantity));
@@ -138,16 +160,19 @@ public sealed class RedisOrderStoreTests : IClassFixture<RedisOrderStoreTests.Re
     [Fact]
     public async Task DifferentInstanceIds_DoNotShareBuffer()
     {
+        // Arrange
         var baseKey = $"test:{Guid.NewGuid():N}";
         var instanceA = CreateStore(baseKey, instanceId: "instance-a");
         var instanceB = CreateStore(baseKey, instanceId: "instance-b");
 
+        // Act
         await instanceA.AddAsync([new Order("p", 10)]);
         await instanceB.AddAsync([new Order("p", 3)]);
 
         var snapshotA = await instanceA.SnapshotAndClearAsync();
         var snapshotB = await instanceB.SnapshotAndClearAsync();
 
+        // Assert
         Assert.Equal(10, snapshotA.Single(o => o.ProductId == "p").Quantity);
         Assert.Equal(3, snapshotB.Single(o => o.ProductId == "p").Quantity);
     }

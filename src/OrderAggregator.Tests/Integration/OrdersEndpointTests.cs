@@ -7,10 +7,16 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using OrderAggregator.Abstractions;
 using OrderAggregator.Contracts.Orders;
 using OrderAggregator.Models;
 using OrderAggregator.Services.Stores;
+// Aliased rather than `using StackExchange.Redis` to avoid clashing with
+// OrderAggregator.Models.Order (StackExchange.Redis also defines an Order type).
+using ConfigurationOptions = StackExchange.Redis.ConfigurationOptions;
+using ConnectionMultiplexer = StackExchange.Redis.ConnectionMultiplexer;
+using IConnectionMultiplexer = StackExchange.Redis.IConnectionMultiplexer;
 
 namespace OrderAggregator.Tests.Integration;
 
@@ -28,8 +34,10 @@ public class OrdersEndpointTests : IClassFixture<OrderAggregatorTestFactory>
     [Fact]
     public async Task Post_ReturnsAccepted_AndStoresAggregatedOrders()
     {
+        // Arrange
         using var client = _factory.CreateAuthenticatedClient();
 
+        // Act
         var response = await client.PostAsJsonAsync("/api/orders", new[]
         {
             new OrderRequest { ProductId = "456", Quantity = 5 },
@@ -37,6 +45,7 @@ public class OrdersEndpointTests : IClassFixture<OrderAggregatorTestFactory>
             new OrderRequest { ProductId = "456", Quantity = 3 },
         });
 
+        // Assert
         Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
 
         var snapshot = await _factory.Store.SnapshotAndClearAsync();
@@ -48,14 +57,17 @@ public class OrdersEndpointTests : IClassFixture<OrderAggregatorTestFactory>
     [Fact]
     public async Task Post_RejectsBatch_WhenAnyProductIdUnknown()
     {
+        // Arrange
         using var client = _factory.CreateAuthenticatedClient();
 
+        // Act
         var response = await client.PostAsJsonAsync("/api/orders", new[]
         {
             new OrderRequest { ProductId = "456", Quantity = 5 },
             new OrderRequest { ProductId = "does-not-exist", Quantity = 1 },
         });
 
+        // Assert
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         var body = await response.Content.ReadAsStringAsync();
         Assert.Contains("[1].productId", body);
@@ -70,8 +82,10 @@ public class OrdersEndpointTests : IClassFixture<OrderAggregatorTestFactory>
     [Fact]
     public async Task Post_ReportsEveryUnknownProductInBatch()
     {
+        // Arrange
         using var client = _factory.CreateAuthenticatedClient();
 
+        // Act
         var response = await client.PostAsJsonAsync("/api/orders", new[]
         {
             new OrderRequest { ProductId = "missing-1", Quantity = 1 },
@@ -79,6 +93,7 @@ public class OrdersEndpointTests : IClassFixture<OrderAggregatorTestFactory>
             new OrderRequest { ProductId = "missing-2", Quantity = 3 },
         });
 
+        // Assert
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         var body = await response.Content.ReadAsStringAsync();
         Assert.Contains("[0].productId", body);
@@ -89,14 +104,17 @@ public class OrdersEndpointTests : IClassFixture<OrderAggregatorTestFactory>
     [Fact]
     public async Task Post_LocalizesError_ToCzech_WhenAcceptLanguageIsCs()
     {
+        // Arrange
         using var client = _factory.CreateAuthenticatedClient();
         client.DefaultRequestHeaders.AcceptLanguage.ParseAdd("cs");
 
+        // Act
         var response = await client.PostAsJsonAsync("/api/orders", new[]
         {
             new OrderRequest { ProductId = "does-not-exist", Quantity = 1 },
         });
 
+        // Assert
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
 
         // Deserialize rather than string-match the raw body: System.Text.Json
@@ -111,13 +129,16 @@ public class OrdersEndpointTests : IClassFixture<OrderAggregatorTestFactory>
     [Fact]
     public async Task Post_UsesNeutralEnglish_WhenNoAcceptLanguageProvided()
     {
+        // Arrange
         using var client = _factory.CreateAuthenticatedClient();
 
+        // Act
         var response = await client.PostAsJsonAsync("/api/orders", new[]
         {
             new OrderRequest { ProductId = "does-not-exist", Quantity = 1 },
         });
 
+        // Assert
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         var body = await response.Content.ReadAsStringAsync();
         Assert.Contains("Unknown productId", body);
@@ -126,13 +147,16 @@ public class OrdersEndpointTests : IClassFixture<OrderAggregatorTestFactory>
     [Fact]
     public async Task Post_ReturnsUnauthorized_WhenApiKeyHeaderMissing()
     {
+        // Arrange
         using var client = _factory.CreateClient();
 
+        // Act
         var response = await client.PostAsJsonAsync("/api/orders", new[]
         {
             new OrderRequest { ProductId = "1", Quantity = 1 },
         });
 
+        // Assert
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
         Assert.Contains("ApiKey", response.Headers.WwwAuthenticate.ToString());
     }
@@ -140,14 +164,17 @@ public class OrdersEndpointTests : IClassFixture<OrderAggregatorTestFactory>
     [Fact]
     public async Task Post_ReturnsUnauthorized_OnWrongApiKey()
     {
+        // Arrange
         using var client = _factory.CreateClient();
         client.DefaultRequestHeaders.Add(OrderAggregatorTestFactory.ApiKeyHeader, "not-a-valid-key");
 
+        // Act
         var response = await client.PostAsJsonAsync("/api/orders", new[]
         {
             new OrderRequest { ProductId = "1", Quantity = 1 },
         });
 
+        // Assert
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
@@ -156,24 +183,30 @@ public class OrdersEndpointTests : IClassFixture<OrderAggregatorTestFactory>
     [InlineData(OrderAggregatorTestFactory.SecondaryTestKey)]
     public async Task Post_AcceptsBothConfiguredKeys(string key)
     {
+        // Arrange
         using var client = _factory.CreateClient();
         client.DefaultRequestHeaders.Add(OrderAggregatorTestFactory.ApiKeyHeader, key);
 
+        // Act
         var response = await client.PostAsJsonAsync("/api/orders", new[]
         {
             new OrderRequest { ProductId = "1", Quantity = 1 },
         });
 
+        // Assert
         Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
     }
 
     [Fact]
     public async Task Post_ReturnsValidationProblem_OnEmptyBody()
     {
+        // Arrange
         using var client = _factory.CreateAuthenticatedClient();
 
+        // Act
         var response = await client.PostAsJsonAsync("/api/orders", Array.Empty<OrderRequest>());
 
+        // Assert
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
@@ -183,36 +216,45 @@ public class OrdersEndpointTests : IClassFixture<OrderAggregatorTestFactory>
     [InlineData("a", -3)]
     public async Task Post_ReturnsValidationProblem_OnInvalidOrder(string productId, int quantity)
     {
+        // Arrange
         using var client = _factory.CreateAuthenticatedClient();
 
+        // Act
         var response = await client.PostAsJsonAsync("/api/orders", new[]
         {
             new OrderRequest { ProductId = productId, Quantity = quantity },
         });
 
+        // Assert
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
     [Fact]
     public async Task Health_ReturnsOk_WithoutApiKey()
     {
+        // Arrange
         using var client = _factory.CreateClient();
 
+        // Act
         // /health/live is the anonymous liveness probe (the bare /health alias was
         // dropped as a duplicate of /health/live + /health/ready).
         var response = await client.GetAsync("/health/live");
 
+        // Assert
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
     [Fact]
     public async Task OpenApiDocument_IsAccessibleAnonymously_AndDeclaresSecurityScheme()
     {
+        // Arrange
         using var client = _factory.CreateClient();
 
+        // Act
         var response = await client.GetAsync("/openapi/v1.json");
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
+        // Assert
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var body = await response.Content.ReadAsStringAsync();
         Assert.Contains("\"ApiKey\"", body);
         Assert.Contains("\"X-Api-Key\"", body);
@@ -221,9 +263,13 @@ public class OrdersEndpointTests : IClassFixture<OrderAggregatorTestFactory>
     [Fact]
     public async Task OpenApiDocument_ExposesCultureQueryParameter_AsLanguageDropdown()
     {
+        // Arrange
         using var client = _factory.CreateClient();
 
+        // Act
         var response = await client.GetAsync("/openapi/v1.json");
+
+        // Assert
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
         // The culture parameter + its enum values let Swagger UI / Scalar render
@@ -251,8 +297,28 @@ public sealed class OrderAggregatorTestFactory : WebApplicationFactory<Program>
     public const string PrimaryTestKey = "test-key-primary-1234567890";
     public const string SecondaryTestKey = "test-key-secondary-1234567890";
 
+    private readonly string? _redisConnectionString;
+
     public TestOrderStore Store { get; } = new();
     public TestProductRepository Products { get; } = new(new[] { "1", "456", "789" });
+
+    // Default: behave like the documented InMemory backend. appsettings.json ships
+    // OrderStore:Kind=Redis and the store-kind switch is read eagerly at registration
+    // (before the test's config overrides apply), so the host always wires up the
+    // Redis health check + multiplexer. We strip them here so readiness aggregates an
+    // empty set — matching what InMemory mode actually produces.
+    public OrderAggregatorTestFactory()
+    {
+    }
+
+    // Internal (not public): xUnit class fixtures must expose a single public ctor.
+    // The Redis readiness variants construct the factory directly via this overload,
+    // which keeps the Redis health check and points its multiplexer at the given
+    // endpoint (a live container for the healthy case, a dead port for the down case).
+    internal OrderAggregatorTestFactory(string redisConnectionString)
+    {
+        _redisConnectionString = redisConnectionString;
+    }
 
     public HttpClient CreateAuthenticatedClient()
     {
@@ -292,6 +358,42 @@ public sealed class OrderAggregatorTestFactory : WebApplicationFactory<Program>
             // products.json shipped with the API project.
             services.RemoveAll<IProductRepository>();
             services.AddSingleton<IProductRepository>(Products);
+
+            ConfigureRedisReadiness(services);
+        });
+    }
+
+    // Adjust the Redis wiring the host always registers (appsettings ships
+    // OrderStore:Kind=Redis). Done here in ConfigureServices, not via configuration,
+    // because the store-kind switch reads config eagerly at registration — before the
+    // test's ConfigureAppConfiguration overrides take effect.
+    private void ConfigureRedisReadiness(IServiceCollection services)
+    {
+        if (_redisConnectionString is null)
+        {
+            // InMemory default: drop the Redis health check so readiness has no
+            // "ready"-tagged checks and the multiplexer never tries to connect.
+            services.RemoveAll<IConnectionMultiplexer>();
+            services.PostConfigure<HealthCheckServiceOptions>(options =>
+            {
+                var redis = options.Registrations.FirstOrDefault(r => r.Name == "redis");
+                if (redis is not null)
+                {
+                    options.Registrations.Remove(redis);
+                }
+            });
+            return;
+        }
+
+        // Redis variants: keep the health check but point the multiplexer at the
+        // chosen endpoint. AbortOnConnectFail=false mirrors production so a dead
+        // endpoint yields Unhealthy (503) instead of throwing at resolution (500).
+        services.RemoveAll<IConnectionMultiplexer>();
+        services.AddSingleton<IConnectionMultiplexer>(_ =>
+        {
+            var config = ConfigurationOptions.Parse(_redisConnectionString);
+            config.AbortOnConnectFail = false;
+            return ConnectionMultiplexer.Connect(config);
         });
     }
 }

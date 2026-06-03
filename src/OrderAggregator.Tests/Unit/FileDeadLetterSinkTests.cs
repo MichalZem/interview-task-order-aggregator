@@ -16,14 +16,17 @@ public class FileDeadLetterSinkTests : IDisposable
     [Fact]
     public async Task WriteAsync_CreatesDirectory_AndWritesBatchAsJson()
     {
+        // Arrange
         var sink = CreateSink();
         var batch = new OrderBatch(
             Guid.NewGuid(),
             new[] { new AggregatedOrder("a", 5), new AggregatedOrder("b", 2) },
             new DateTimeOffset(2026, 5, 31, 10, 0, 0, TimeSpan.Zero));
 
+        // Act
         await sink.WriteAsync(batch);
 
+        // Assert
         var files = Directory.GetFiles(_directory, "*.json");
         var file = Assert.Single(files);
 
@@ -42,13 +45,16 @@ public class FileDeadLetterSinkTests : IDisposable
     [Fact]
     public async Task WriteAsync_LeavesNoTempFiles_AfterWrite()
     {
+        // Arrange
         var sink = CreateSink();
 
+        // Act
         await sink.WriteAsync(new OrderBatch(
             Guid.NewGuid(),
             new[] { new AggregatedOrder("a", 1) },
             DateTimeOffset.UtcNow));
 
+        // Assert
         Assert.Empty(Directory.GetFiles(_directory, "*.tmp"));
     }
 

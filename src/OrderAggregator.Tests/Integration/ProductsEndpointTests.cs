@@ -17,10 +17,13 @@ public class ProductsEndpointTests : IClassFixture<OrderAggregatorTestFactory>
     [Fact]
     public async Task List_ReturnsAllConfiguredProducts()
     {
+        // Arrange
         using var client = _factory.CreateAuthenticatedClient();
 
+        // Act
         var response = await client.GetAsync("/api/products");
 
+        // Assert
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var payload = await response.Content.ReadFromJsonAsync<ProductListResponse>();
         Assert.NotNull(payload);
@@ -36,20 +39,26 @@ public class ProductsEndpointTests : IClassFixture<OrderAggregatorTestFactory>
     [Fact]
     public async Task List_ReturnsUnauthorized_WithoutApiKey()
     {
+        // Arrange
         using var client = _factory.CreateClient();
 
+        // Act
         var response = await client.GetAsync("/api/products");
 
+        // Assert
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
     [Fact]
     public async Task Get_ReturnsProduct_WhenIdExists()
     {
+        // Arrange
         using var client = _factory.CreateAuthenticatedClient();
 
+        // Act
         var response = await client.GetAsync("/api/products/456");
 
+        // Assert
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var product = await response.Content.ReadFromJsonAsync<ProductDto>();
         Assert.NotNull(product);
@@ -60,20 +69,26 @@ public class ProductsEndpointTests : IClassFixture<OrderAggregatorTestFactory>
     [Fact]
     public async Task Get_Returns404_WhenIdMissing()
     {
+        // Arrange
         using var client = _factory.CreateAuthenticatedClient();
 
+        // Act
         var response = await client.GetAsync("/api/products/does-not-exist");
 
+        // Assert
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
 
     [Fact]
     public async Task Get_ReturnsUnauthorized_WithoutApiKey()
     {
+        // Arrange
         using var client = _factory.CreateClient();
 
+        // Act
         var response = await client.GetAsync("/api/products/456");
 
+        // Assert
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 }

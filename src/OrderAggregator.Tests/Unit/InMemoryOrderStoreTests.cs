@@ -9,8 +9,10 @@ public class InMemoryOrderStoreTests
     [Fact]
     public async Task AddAsync_AggregatesQuantitiesByProductId()
     {
+        // Arrange
         var store = new InMemoryOrderStore();
 
+        // Act
         await store.AddAsync(
         [
             new Order("456", 5),
@@ -20,6 +22,7 @@ public class InMemoryOrderStoreTests
 
         var snapshot = await store.SnapshotAndClearAsync();
 
+        // Assert
         Assert.Equal(2, snapshot.Count);
         Assert.Equal(8, snapshot.Single(o => o.ProductId == "456").Quantity);
         Assert.Equal(42, snapshot.Single(o => o.ProductId == "789").Quantity);
@@ -28,33 +31,41 @@ public class InMemoryOrderStoreTests
     [Fact]
     public async Task DrainAsync_ResetsState()
     {
+        // Arrange
         var store = new InMemoryOrderStore();
         await store.AddAsync([new Order("a", 1)]);
 
+        // Act
         await store.SnapshotAndClearAsync();
         var second = await store.SnapshotAndClearAsync();
 
+        // Assert
         Assert.Empty(second);
     }
 
     [Fact]
     public async Task DrainAsync_ReturnsEmpty_WhenNothingWritten()
     {
+        // Arrange
         var store = new InMemoryOrderStore();
 
+        // Act
         var snapshot = await store.SnapshotAndClearAsync();
 
+        // Assert
         Assert.Empty(snapshot);
     }
 
     [Fact]
     public async Task AddAsync_IsThreadSafe_UnderConcurrentWriters()
     {
+        // Arrange
         var store = new InMemoryOrderStore();
         const int Writers = 32;
         const int OrdersPerWriter = 1_000;
         const int ProductCount = 50;
 
+        // Act
         await Parallel.ForEachAsync(
             Enumerable.Range(0, Writers),
             async (writer, _) =>
@@ -71,6 +82,7 @@ public class InMemoryOrderStoreTests
 
         var snapshot = await store.SnapshotAndClearAsync();
 
+        // Assert
         var expectedPerProduct = (long)Writers * OrdersPerWriter / ProductCount;
         Assert.Equal(ProductCount, snapshot.Count);
         Assert.All(snapshot, agg => Assert.Equal(expectedPerProduct, agg.Quantity));
@@ -79,11 +91,13 @@ public class InMemoryOrderStoreTests
     [Fact]
     public async Task DrainAsync_DoesNotLoseWrites_WhenInterleavedWithAdd()
     {
+        // Arrange
         var store = new InMemoryOrderStore();
         const int TotalOrders = 10_000;
         var drained = new List<long>();
         using var cts = new CancellationTokenSource();
 
+        // Act
         var writer = Task.Run(async () =>
         {
             for (var i = 0; i < TotalOrders; i++)
@@ -108,6 +122,7 @@ public class InMemoryOrderStoreTests
         var finalSnapshot = await store.SnapshotAndClearAsync();
         var totalSeen = drained.Sum() + finalSnapshot.Sum(a => a.Quantity);
 
+        // Assert
         Assert.Equal(TotalOrders, totalSeen);
     }
 }

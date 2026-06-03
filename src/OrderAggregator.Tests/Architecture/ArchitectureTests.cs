@@ -62,8 +62,11 @@ public class ArchitectureTests
     [Fact]
     public void Contracts_ShouldNotDependOnOtherProjectAssemblies()
     {
+        // Arrange: the shared Architecture (loaded once, see the static field above).
         // Contracts must remain a leaf assembly so it can be packaged as a
         // client SDK without dragging in domain / hosting code.
+
+        // Act & Assert (the fluent rule both expresses and verifies the invariant via Check)
         Types().That().Are(ContractsLayer)
             .Should().NotDependOnAny(EveryProjectExcept(typeof(OrderRequest).Assembly, "Contracts"))
             .Because("Contracts must stay leaf so it can be shipped to clients without hidden transitive deps.")
@@ -73,8 +76,11 @@ public class ArchitectureTests
     [Fact]
     public void Models_ShouldNotDependOnOtherProjectAssemblies()
     {
+        // Arrange: the shared Architecture (loaded once, see the static field above).
         // Models is pure domain — must not be polluted with ASP.NET, Mapster,
         // EF, etc. via accidental cross-project references.
+
+        // Act & Assert
         Types().That().Are(ModelsLayer)
             .Should().NotDependOnAny(EveryProjectExcept(typeof(Order).Assembly, "Models"))
             .Because("Models is the domain — keep it free of infrastructure and wire concerns.")
@@ -84,9 +90,12 @@ public class ArchitectureTests
     [Fact]
     public void Resources_ShouldNotDependOnOtherProjectAssemblies()
     {
+        // Arrange: the shared Architecture (loaded once, see the static field above).
         // Localized strings are a leaf concern — the generated ApiMessages class
         // wraps only BCL ResourceManager. Keeping Resources leaf means any layer
         // (Api today, Services tomorrow) can reference it without forming a cycle.
+
+        // Act & Assert
         Types().That().Are(ResourcesLayer)
             .Should().NotDependOnAny(EveryProjectExcept(typeof(ApiMessages).Assembly, "Resources"))
             .Because("Resources holds only localized strings; it must stay leaf so any layer can consume it.")
@@ -96,6 +105,7 @@ public class ArchitectureTests
     [Fact]
     public void Abstractions_ShouldNotDependOnImplementationsOrApi()
     {
+        // Act & Assert (Arrange = the shared Architecture loaded in the static field above)
         Types().That().Are(AbstractionsLayer)
             .Should().NotDependOnAny(ServicesLayer)
             .AndShould().NotDependOnAny(ApiLayer)
@@ -106,6 +116,7 @@ public class ArchitectureTests
     [Fact]
     public void Shared_ShouldNotDependOnImplementationsOrApi()
     {
+        // Act & Assert (Arrange = the shared Architecture loaded in the static field above)
         Types().That().Are(SharedLayer)
             .Should().NotDependOnAny(ServicesLayer)
             .AndShould().NotDependOnAny(ApiLayer)
@@ -116,6 +127,7 @@ public class ArchitectureTests
     [Fact]
     public void Services_ShouldNotDependOnApi()
     {
+        // Act & Assert (Arrange = the shared Architecture loaded in the static field above)
         Types().That().Are(ServicesLayer)
             .Should().NotDependOnAny(ApiLayer)
             .Because("The implementation layer must not know about the ASP.NET hosting layer above it.")
@@ -125,8 +137,11 @@ public class ArchitectureTests
     [Fact]
     public void DtoTypes_InContracts_ShouldBeNamed_DtoOrRequestOrResponse()
     {
+        // Arrange: the shared Architecture (loaded once, see the static field above).
         // Naming convention keeps Contracts small and intentional: anything
         // added here is obviously a wire type, never a helper or a service.
+
+        // Act & Assert
         Classes().That().Are(ContractsLayer)
             .Should().HaveNameEndingWith("Dto")
             .OrShould().HaveNameEndingWith("Request")

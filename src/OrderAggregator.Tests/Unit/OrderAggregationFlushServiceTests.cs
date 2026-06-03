@@ -14,13 +14,16 @@ public class OrderAggregationFlushServiceTests
     [Fact]
     public async Task FlushOnce_SendsAggregatedBatch_AndDrainsStore()
     {
+        // Arrange
         var store = new InMemoryOrderStore();
         var sender = new CapturingSender();
         var service = CreateService(store, sender);
-
         await store.AddAsync(new[] { new Order("a", 2), new Order("b", 1), new Order("a", 3) });
+
+        // Act
         await service.FlushOnceAsync();
 
+        // Assert
         var batch = Assert.Single(sender.Batches);
         Assert.Equal(2, batch.Orders.Count);
         Assert.Equal(5, batch.Orders.Single(o => o.ProductId == "a").Quantity);
@@ -33,26 +36,32 @@ public class OrderAggregationFlushServiceTests
     [Fact]
     public async Task FlushOnce_SkipsSend_WhenStoreIsEmpty()
     {
+        // Arrange
         var store = new InMemoryOrderStore();
         var sender = new CapturingSender();
         var service = CreateService(store, sender);
 
+        // Act
         await service.FlushOnceAsync();
 
+        // Assert
         Assert.Empty(sender.Batches);
     }
 
     [Fact]
     public async Task FlushOnce_DeadLettersBatch_AndDoesNotRequeue_WhenSenderAlwaysFails()
     {
+        // Arrange
         var store = new InMemoryOrderStore();
         var sender = new FlakySender(failFirstAttempts: int.MaxValue); // never recovers
         var deadLetter = new CapturingDeadLetterSink();
         var service = CreateService(store, sender, deadLetter);
-
         await store.AddAsync(new[] { new Order("a", 7), new Order("b", 4) });
 
+        // Act
         await service.FlushOnceAsync(); // exhausts retries, dead-letters
+
+        // Assert
         Assert.Empty(sender.SuccessfulBatches);
 
         // Failed batch went to the dead-letter sink with the aggregated totals.
@@ -69,15 +78,17 @@ public class OrderAggregationFlushServiceTests
     [Fact]
     public async Task FlushOnce_RetriesAndSucceeds_WithoutDeadLettering()
     {
+        // Arrange
         var store = new InMemoryOrderStore();
         var sender = new FlakySender(failFirstAttempts: 1); // recovers on the retry
         var deadLetter = new CapturingDeadLetterSink();
         var service = CreateService(store, sender, deadLetter);
-
         await store.AddAsync(new[] { new Order("a", 7) });
 
+        // Act
         await service.FlushOnceAsync();
 
+        // Assert
         var sent = Assert.Single(sender.SuccessfulBatches);
         Assert.Equal(7, sent.Orders.Single(o => o.ProductId == "a").Quantity);
         Assert.Empty(deadLetter.Batches);

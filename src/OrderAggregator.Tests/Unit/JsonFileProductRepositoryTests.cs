@@ -11,6 +11,7 @@ public class JsonFileProductRepositoryTests : IDisposable
     [Fact]
     public void LoadFromFile_ReadsCatalog_AndExposesLookup()
     {
+        // Arrange
         File.WriteAllText(_tempFile, """
             [
               { "ProductId": "1", "ProductName": "Alpha" },
@@ -18,8 +19,10 @@ public class JsonFileProductRepositoryTests : IDisposable
             ]
             """);
 
+        // Act
         var repo = JsonFileProductRepository.LoadFromFile(_tempFile, NullLogger.Instance);
 
+        // Assert
         Assert.Equal(2, repo.Count);
         Assert.True(repo.Exists("1"));
         Assert.True(repo.Exists("2"));
@@ -31,6 +34,7 @@ public class JsonFileProductRepositoryTests : IDisposable
     [Fact]
     public void LoadFromFile_DedupesDuplicateIds_KeepingFirst()
     {
+        // Arrange
         File.WriteAllText(_tempFile, """
             [
               { "ProductId": "1", "ProductName": "First" },
@@ -38,8 +42,10 @@ public class JsonFileProductRepositoryTests : IDisposable
             ]
             """);
 
+        // Act
         var repo = JsonFileProductRepository.LoadFromFile(_tempFile, NullLogger.Instance);
 
+        // Assert
         Assert.Equal(1, repo.Count);
         Assert.Equal("First", repo.Find("1")!.ProductName);
     }
@@ -47,23 +53,31 @@ public class JsonFileProductRepositoryTests : IDisposable
     [Fact]
     public void LoadFromFile_ThrowsWhenFileMissing()
     {
+        // Arrange
         var path = Path.Combine(Path.GetTempPath(), $"missing-{Guid.NewGuid():N}.json");
+
+        // Act & Assert
         Assert.Throws<FileNotFoundException>(() => JsonFileProductRepository.LoadFromFile(path, NullLogger.Instance));
     }
 
     [Fact]
     public void LoadFromFile_ThrowsOnEmptyCatalog()
     {
+        // Arrange
         File.WriteAllText(_tempFile, "[]");
+
+        // Act & Assert
         Assert.Throws<InvalidOperationException>(() => JsonFileProductRepository.LoadFromFile(_tempFile, NullLogger.Instance));
     }
 
     [Fact]
     public void Exists_ReturnsFalse_ForNullOrEmptyId()
     {
+        // Arrange
         File.WriteAllText(_tempFile, """[ { "ProductId": "1", "ProductName": "Alpha" } ]""");
         var repo = JsonFileProductRepository.LoadFromFile(_tempFile, NullLogger.Instance);
 
+        // Act & Assert
         Assert.False(repo.Exists(""));
         Assert.False(repo.Exists(null!));
     }

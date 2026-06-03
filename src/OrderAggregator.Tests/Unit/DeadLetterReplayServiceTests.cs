@@ -13,13 +13,16 @@ public class DeadLetterReplayServiceTests
     [Fact]
     public async Task ReplayOnce_ResendsAndDeletes_OnSuccess()
     {
+        // Arrange
         var reader = new FakeDeadLetterReader();
         reader.Add("deadletter-1.json", Batch(("a", 5)));
         var sender = new CapturingSender();
         var service = CreateService(reader, sender);
 
+        // Act
         await service.ReplayOnceAsync(CancellationToken.None);
 
+        // Assert
         var sent = Assert.Single(sender.Batches);
         Assert.Equal(5, sent.Orders.Single(o => o.ProductId == "a").Quantity);
         Assert.Contains("deadletter-1.json", reader.Deleted);
@@ -29,11 +32,13 @@ public class DeadLetterReplayServiceTests
     [Fact]
     public async Task ReplayOnce_QuarantinesAfterMaxAttempts_WhenSenderAlwaysFails()
     {
+        // Arrange
         var reader = new FakeDeadLetterReader();
         reader.Add("deadletter-1.json", Batch(("a", 1)));
         var sender = new AlwaysFailingSender();
         var service = CreateService(reader, sender, maxReplayAttempts: 3);
 
+        // Act & Assert (progressive: each tick advances the in-memory attempt counter)
         // First (maxAttempts - 1) ticks just retry, no quarantine yet.
         await service.ReplayOnceAsync(CancellationToken.None);
         await service.ReplayOnceAsync(CancellationToken.None);
@@ -52,13 +57,16 @@ public class DeadLetterReplayServiceTests
     [Fact]
     public async Task ReplayOnce_QuarantinesCorruptEntry_WithoutSending()
     {
+        // Arrange
         var reader = new FakeDeadLetterReader();
         reader.Add("deadletter-bad.json", batch: null); // corrupt => ReadAsync returns null
         var sender = new CapturingSender();
         var service = CreateService(reader, sender);
 
+        // Act
         await service.ReplayOnceAsync(CancellationToken.None);
 
+        // Assert
         Assert.Empty(sender.Batches);
         Assert.Equal(new[] { "deadletter-bad.json" }, reader.Quarantined);
     }
@@ -66,6 +74,7 @@ public class DeadLetterReplayServiceTests
     [Fact]
     public async Task ReplayOnce_ProcessesAtMostMaxFilesPerRun()
     {
+        // Arrange
         var reader = new FakeDeadLetterReader();
         for (var i = 0; i < 5; i++)
         {
@@ -74,8 +83,10 @@ public class DeadLetterReplayServiceTests
         var sender = new CapturingSender();
         var service = CreateService(reader, sender, maxFilesPerRun: 2);
 
+        // Act
         await service.ReplayOnceAsync(CancellationToken.None);
 
+        // Assert
         Assert.Equal(2, sender.Batches.Count);
         Assert.Equal(2, reader.Deleted.Count);
     }

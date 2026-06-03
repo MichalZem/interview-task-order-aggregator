@@ -16,12 +16,14 @@ public class ApiMessagesTests
     [Fact]
     public void NeutralCulture_ReturnsEnglish()
     {
+        // Arrange
         var previous = CultureInfo.CurrentUICulture;
         try
         {
             // Invariant falls back to the neutral .resx (English).
             CultureInfo.CurrentUICulture = CultureInfo.InvariantCulture;
 
+            // Act & Assert (the property read is the act, inline in the assertion)
             Assert.Equal("Request body must contain at least one order.", ApiMessages.OrderBatchEmpty);
             Assert.Equal("Unknown productId '{0}'. Order rejected.", ApiMessages.OrderUnknownProduct);
         }
@@ -34,11 +36,13 @@ public class ApiMessagesTests
     [Fact]
     public void CzechCulture_ReturnsCzech_FromSatelliteAssembly()
     {
+        // Arrange
         var previous = CultureInfo.CurrentUICulture;
         try
         {
             CultureInfo.CurrentUICulture = CultureInfo.GetCultureInfo("cs");
 
+            // Act & Assert (the property read is the act, inline in the assertion)
             Assert.Equal("Tělo požadavku musí obsahovat alespoň jednu objednávku.", ApiMessages.OrderBatchEmpty);
             Assert.Equal("Neznámé productId '{0}'. Objednávka odmítnuta.", ApiMessages.OrderUnknownProduct);
         }
@@ -55,11 +59,17 @@ public class ApiMessagesTests
         // so call-sites don't juggle string?. Referencing it by name at all is the
         // strong-typing guarantee — a renamed/removed key fails the build, not a
         // runtime lookup. Pin invariant so the assertion is culture-independent.
+
+        // Arrange
         var previous = CultureInfo.CurrentUICulture;
         try
         {
             CultureInfo.CurrentUICulture = CultureInfo.InvariantCulture;
+
+            // Act
             string message = ApiMessages.OrderInvalidValue;
+
+            // Assert
             Assert.False(string.IsNullOrEmpty(message));
         }
         finally

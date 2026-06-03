@@ -27,8 +27,10 @@ public sealed class OpenApiDocumentTests : IClassFixture<OrderAggregatorTestFact
     [Fact]
     public async Task Document_Tags_HaveDescriptions()
     {
+        // Arrange & Act
         using var document = await GetOpenApiDocumentAsync();
 
+        // Assert
         var tags = document.RootElement.GetProperty("tags");
         foreach (var name in new[] { "Orders", "Products" })
         {
@@ -42,8 +44,10 @@ public sealed class OpenApiDocumentTests : IClassFixture<OrderAggregatorTestFact
     [Fact]
     public async Task PostOrders_RequestBody_IsRequiredNonEmptyArray()
     {
+        // Arrange & Act
         using var document = await GetOpenApiDocumentAsync();
 
+        // Assert
         var post = document.RootElement
             .GetProperty("paths")
             .GetProperty("/api/orders")
@@ -68,8 +72,10 @@ public sealed class OpenApiDocumentTests : IClassFixture<OrderAggregatorTestFact
     [InlineData("ProductListResponse", "count")]
     public async Task IntegerProperties_AreCleanIntegers_NotStringUnions(string schemaName, string propertyName)
     {
+        // Arrange & Act
         using var document = await GetOpenApiDocumentAsync();
 
+        // Assert
         var property = document.RootElement
             .GetProperty("components")
             .GetProperty("schemas")
@@ -88,8 +94,10 @@ public sealed class OpenApiDocumentTests : IClassFixture<OrderAggregatorTestFact
     [InlineData("HttpValidationProblemDetails")]
     public async Task ProblemDetailSchemas_HaveDescriptions(string schemaName)
     {
+        // Arrange & Act
         using var document = await GetOpenApiDocumentAsync();
 
+        // Assert
         var schema = document.RootElement
             .GetProperty("components")
             .GetProperty("schemas")
@@ -102,8 +110,10 @@ public sealed class OpenApiDocumentTests : IClassFixture<OrderAggregatorTestFact
     [Fact]
     public async Task PostOrders_DeclaresServerErrorResponse()
     {
+        // Arrange & Act
         using var document = await GetOpenApiDocumentAsync();
 
+        // Assert
         var responses = document.RootElement
             .GetProperty("paths")
             .GetProperty("/api/orders")

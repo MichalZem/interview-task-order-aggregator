@@ -266,6 +266,16 @@ automaticky. **Pozor:** bezparametrové `NotDependOnAny()` je tichý no-op
   Obojí anonymní.
 - **`RedisHealthCheck`** (tag `ready`) se registruje **jen v Redis větvi** —
   readiness závisí na Redisu jen když na něm reálně stojí buffer.
+  - **`IConnectionMultiplexer` se připojuje s `AbortOnConnectFail=false`** (Redis větev
+    v `RegisterOrderStore`). Cold start s dočasně nedostupným Redisem tak **nevyhodí**
+    výjimku už při resolve multiplexeru (to by `/health/ready` shodilo na **500**) —
+    multiplexer zůstane v retry stavu a `RedisHealthCheck` vrátí `Unhealthy` → **503**,
+    což je korektní readiness signál (orchestrátor instanci nepustí do rotace a zkouší dál).
+  - **Test matrix** (`HealthEndpointTests` InMemory→200; `HealthReadinessRedisTests`
+    Redis-up→200 přes `RedisFixture`, Redis-down→503). Pozn.: store-kind switch se čte
+    **eagerly při registraci**, takže test override přes `ConfigureAppConfiguration`
+    na něj nedosáhne — Redis wiring se v `OrderAggregatorTestFactory` upravuje přes
+    `ConfigureServices` (strip checku / přepnutí multiplexeru), ne přes konfiguraci.
 - **Detail výstupu jen v Development** (`HealthCheckResponseWriter`); v produkci
   plain-text, ať anonymní endpoint neprozradí závislosti.
 - **Nový check:** `IHealthCheck` do `Api/Health/`, registruj v `AddAppHealthChecks`

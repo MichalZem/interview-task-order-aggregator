@@ -72,7 +72,16 @@ public static class OrderAggregatorServiceCollectionExtensions
         {
             case OrderStoreKind.Redis:
                 services.TryAddSingleton<IConnectionMultiplexer>(_ =>
-                    ConnectionMultiplexer.Connect(storeOptions.Redis.ConnectionString));
+                {
+                    // AbortOnConnectFail=false so a cold start while Redis is briefly
+                    // unreachable does not throw at multiplexer resolution (which would
+                    // surface from the readiness probe as a 500). The multiplexer stays in
+                    // a retrying state and RedisHealthCheck reports Unhealthy -> 503 until
+                    // Redis is reachable, which is the correct readiness signal.
+                    var config = ConfigurationOptions.Parse(storeOptions.Redis.ConnectionString);
+                    config.AbortOnConnectFail = false;
+                    return ConnectionMultiplexer.Connect(config);
+                });
                 services.TryAddSingleton<IOrderStore, RedisOrderStore>();
 
                 services.AddHealthChecks()
